@@ -1,0 +1,37 @@
+define Phoenix_Inverter_12_500 VEDirectHex /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AC00V4R2-if00-port0@19200 Inverter
+attr Phoenix_Inverter_12_500 group Batterie
+attr Phoenix_Inverter_12_500 room BattMon,Start
+attr Phoenix_Inverter_12_500 stateFormat <hr><div><table align=center>\
+<tr><td align=left>Batteriespannung:</td><td align=left>Spannung_V_Inverter</td></tr>\
+<tr><td align=left>AC-Spannung:</td><td align=left>AC_OUT_VOLTAGE</td></tr>\
+<tr><td align=left>AC-Strom:</td><td align=left>AC_OUT_CURRENT</td></tr>\
+<tr><td align=left>AC-Leistung:</td><td align=left>P_AC</td></tr>\
+<tr><td align=left>Zustand:</td><td align=left>Device_mode</td></tr>\
+<tr><td align=left>Alarme:</td><td align=left>Alarm_reason</td></tr>\
+<tr><td align=left>Wanungen:</td><td align=left>Warning_reason</td></tr>\
+</table></div><hr>
+attr Phoenix_Inverter_12_500 userReadings P_AC {my $a= ReadingsNum("Phoenix_Inverter_12_500","AC_OUT_VOLTAGE",0);;my $b= ReadingsNum("Phoenix_Inverter_12_500","AC_OUT_CURRENT",0);;my $c = ($a*$b)." VA";;return $c;;}
+attr Phoenix_Inverter_12_500 verbose 0
+attr Phoenix_Inverter_12_500 webCmd Device_mode
+
+
+define MPPT75_15 VEDirectHex /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AH06W0RF-if00-port0@19200 MPPT
+setuuid MPPT75_15 5d8a5980-f33f-d0ec-ec36-d7a4ffb31dfaf696
+attr MPPT75_15 LogHistoryToFile /mnt/2019_MPPT75_15_History.log
+attr MPPT75_15 group Batterie
+attr MPPT75_15 room BattMon,Start
+attr MPPT75_15 stateFormat <hr><div><table align=center>\
+<tr><td align=left>Batteriespannung:</td><td align=left>Battery_voltage</td></tr>\
+<tr><td align=left>Batteriestrom:</td><td align=left>Battery_current</td></tr>\
+<tr><td align=left>Batterie-Leistung:</td><td align=left>Battery_power</td></tr>\
+<tr><td align=left>Panel-Spannung</td><td align=left>Panel_voltage</td></tr>\
+<tr><td align=left>Panel-Strom</td><td align=left>Panel_current</td></tr><tr>\
+<tr><td align=left>Panel-Leistung</td><td align=left>Panel_power</td></tr><tr>\
+<tr><td align=left>Chargerstatus</td><td align=left>Charger_state</td></tr>\
+<tr><td align=left>Ertrag heute</td><td align=left>Yield_today</td></tr>\
+<tr><td align=left>Lastausang</td><td align=left>Load_output_state</td></tr>\
+<tr><td align=left>Max Leistung heute</td><td align=left>Maximum_power_today</td></tr>\
+</table></div><hr>
+attr MPPT75_15 userReadings Battery_power {my $a= ReadingsNum("MPPT75_15","Battery_voltage",0);;;;my $b= ReadingsNum("MPPT75_15","Battery_current",0);;;;my $c = ($a*$b);;;;return sprintf("%.2f W", $c);;}, \
+Panel_current {my $a= ReadingsNum("MPPT75_15","Panel_power",0);;;;my $b= ReadingsNum("MPPT75_15","Panel_voltage",1);;;;my $c = ($a/$b);;;;return sprintf("%.2f A", $c);;}
+attr MPPT75_15 verbose 0
