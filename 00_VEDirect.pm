@@ -1,4 +1,4 @@
-#Version 8.53 Autor: Askie (02.10.2019 - 22:00)
+#Version 8.61 Autor: Askie (08.10.2019 - 16:16)
 #########################################################################
 # fhem Modul fuer Victron VE.Direct Hex-Protokoll
 #  
@@ -11,9 +11,9 @@ use warnings;                        #
 use Time::HiRes qw(gettimeofday);    #
 
 my %startBlock = (
-'BMV'=>"\nH1|\nPID",
-'MPPT'=>"\nPID",
-'Inverter'=>"\nPID"
+'BMV'=>"\r\nH1|\r\nPID",
+'MPPT'=>"\r\nPID",
+'Inverter'=>"\r\nPID"
 );
 
 #########################################################################
@@ -239,7 +239,7 @@ my %MPPT = (
 '0xEDF0'=>{"Bezeichnung"=>"Battery_maximum_current", "ReadingName"=>"Battery_maximum_current", "Einheit"=>"A", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_maximum_current:noArg", "setValues"=>"Battery_maximum_current", "spezialSetGet"=>"-"},
 '0xEDF1'=>{"Bezeichnung"=>"Battery_type", "ReadingName"=>"Battery_type", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_type:noArg", "setValues"=>"Battery_type:TYPE_1_GEL_Victron_Long_Life_14_1V,TYPE_2_GEL_Victron_Deep_discharge_14_3V,TYPE_3_GEL_Victron_Deep_discharge_14_4V,TYPE_4_AGM_Victron_Deep_discharge_14_7V,TYPE_5_Tubular_plate_cyclic_mode_1_14_9V,TYPE_6_Tubular_plate_cyclic_mode_2_15_1V,TYPE_7_Tubular_plate_cyclic_mode_3_15_3V,TYPE_8_LiFEPO4_14_2V,User_defined", "spezialSetGet"=>"1:2:3:4:5:6:7:8:255"},
 '0xEDF2'=>{"Bezeichnung"=>"Battery_temp._compensation", "ReadingName"=>"Battery_temp._compensation", "Einheit"=>"mV_K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_temp._compensation:noArg", "setValues"=>"Battery_temp._compensation", "spezialSetGet"=>"-"},
-'0xEDF4'=>{"Bezeichnung"=>"Battery_equalization_voltage", "ReadingName"=>"Battery_equalization_voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_equalization_voltage:noArg", "setValues"=>"Battery_equalization_voltage", "spezialSetGet"=>"-"},
+'0xEDF4'=>{"Bezeichnung"=>"Battery_equalization_voltage", "ReadingName"=>"Battery_equalization_voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"8", "max"=>"17", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_equalization_voltage:noArg", "setValues"=>"Battery_equalization_voltage", "spezialSetGet"=>"-"},
 '0xEDF6'=>{"Bezeichnung"=>"Battery_float_voltage", "ReadingName"=>"Battery_float_voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_float_voltage:noArg", "setValues"=>"Battery_float_voltage", "spezialSetGet"=>"-"},
 '0xEDF7'=>{"Bezeichnung"=>"Battery_absorption_voltage", "ReadingName"=>"Battery_absorption_voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_absorption_voltage:noArg", "setValues"=>"Battery_absorption_voltage", "spezialSetGet"=>"-"},
 '0xEDFB'=>{"Bezeichnung"=>"Battery_absorption_time_limit", "ReadingName"=>"Battery_absorption_time_limit", "Einheit"=>"h", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_absorption_time_limit:noArg", "setValues"=>"Battery_absorption_time_limit", "spezialSetGet"=>"-"},
@@ -474,7 +474,8 @@ my %ARtext=   ('0'=>"--",
                '4'=>" Low SOC",
                '2'=>" High Voltage",
                '1'=>" Low Voltage");
-                   
+
+                 
 # ERR (Fehlercode)
 #my %ERR =    ('0'=>"kein Fehler",
 #              '2'=> "Battery voltage too high",
@@ -530,7 +531,7 @@ sub VEDirect_Initialize($)
   $hash->{ShutdownFn} = "VEDirect_Shutdown";
   $hash->{AttrList}   = "do_not_notify:1,0 disable:0,1 disabledForIntervals $readingFnAttributes IgnoreChecksum:1,0 LogHistoryToFile";
   $hash->{helper}{BUFFER} = "";
-}   
+} #UpdateTime_s:2,3,4,5,6,7,8,9,10,15,20,25,30  
 
 
 ##################################################################################################################################################
@@ -577,6 +578,7 @@ sub VEDirect_Define($$)
     Log3 $name, 2, "VEDirect ($name) - SET-Values fuer $type gesetzt: $tmpSets";
     $tmpGets .= "ConfigAll:noArg"." ";                   ## general Configuration request
     $tmpGets .= "History_all:noArg"." " if ($type eq "MPPT"); ##only MPPT
+    $tmpSets .= "Restart:noArg"; #Restart command
     
     Log3 $name, 5, "$name - SET/GET-Values fuer $type gesetzt";
     $hash->{helper}{setusage} = $tmpSets;
@@ -586,11 +588,11 @@ sub VEDirect_Define($$)
   $tmpGets = "";
   $hash->{DeviceName} = $dev;
   $hash->{helper}{BUFFER} = "";
-  
+  #$hash->{helper}{updatetime} = "-";  
   my $ret = DevIo_OpenDev( $hash, 0, undef );
 
   ##("Timername", gettimeofday() + 30, "Funktionsname", $hash, 0);  
-  InternalTimer(gettimeofday() + 2, "VEDirect_PollShort", $hash, 0);
+  #InternalTimer(gettimeofday() + 2, "VEDirect_PollShort", $hash, 0);
   return $ret; 
 }
 
@@ -622,16 +624,16 @@ sub VEDirect_Attr($$$$)
     {
       if ($attrValue < 1 || $attrValue >= 31) 
       {
-        Log3 $name, 3, "VEDirect ($name) - Invalid attr $name $attrName $attrValue";
+        Log3 $name, 5, "VEDirect ($name) - Invalid attr $name $attrName $attrValue";
         return "Invalid value for $attrName: $attrValue";
       }
-      else  {;}
+      else  {$hash->{helper}{updatetime} = "-";}
     }
     if ($attrName eq "LogHistoryToFile")
     {
       if ($attrValue eq "") 
       {
-        Log3 $name, 3, "VEDirect ($name) - Invalid attr $name $attrName $attrValue";
+        Log3 $name, 5, "VEDirect ($name) - Invalid attr $name $attrName $attrValue";
         return "Invalid value for $attrName: $attrValue --> Please enter a /path/Filename.log";
       }
       else  
@@ -656,7 +658,7 @@ sub VEDirect_Attr($$$$)
   {
     if ($attrName eq "UpdateTime_s")
     {
-      ##$shortPollTime_s = 10;
+      $hash->{helper}{updatetime} = "-"; ##$shortPollTime_s = 10;
     }
   }
   return undef;
@@ -690,7 +692,7 @@ sub VEDirect_Set($$@)
  ## Informationen aus dem %Register zum Befehl holen und verarbeiten
     if ($reg ne "-")
       {
-        Log3 $name, 3, "VEDirect ($name) - Set command: $cmd Arguments $args[0] ---> Register $reg identified";
+        Log3 $name, 5, "VEDirect ($name) - Set command: $cmd Arguments $args[0] ---> Register $reg identified";
         ##$reg = substr($reg, 2, 4);     # "0x" entfernen
         ##Befehlsaufbau: ":8"(Set-Befehl) plus "00" Flags plus "Datavalue"
         ##Command 8 ("Set") Returns a set response with the requested data or error is returned.
@@ -699,19 +701,22 @@ sub VEDirect_Set($$@)
         ##type depends on id value
         my $command = ":8".substr($reg, 4, 2).substr($reg, 2, 2)."00";
         ##wenn args[0] eine nummer ist
-        if ( $args[0] =~ /^[0-9,.]+$/ ) 
+        if ( $args[0] =~ /^[0-9,.]+.+/ ) 
         {
+          $args[0] =~ /^[0-9,.]+$/;
+          Log3 $name, 5, "VEDirect ($name) - Set prüfe $args[0] auf Min- und Max-Werte";
           ##Auf min und max-Werte prüfen
-          if ($Register{ $type }->{ $reg }->{'min'} ne "-")
+          if ($Register{ $type }->{ $reg }->{'min'} ne "-" && $Register{ $type }->{ $reg }->{'min'} ne "")
           {
              $args[0] = $Register{ $type }->{ $reg }->{'min'} if ($args[0] < $Register{ $type }->{ $reg }->{'min'});  
           }
-          if ($Register{ $type }->{ $reg }->{'max'} ne "-")
+          if ($Register{ $type }->{ $reg }->{'max'} ne "-" && $Register{ $type }->{ $reg }->{'max'} ne "")
           {
              $args[0] = $Register{ $type }->{ $reg }->{'max'} if ($args[0] > $Register{ $type }->{ $reg }->{'max'});  
           }
 
           $args[0] = $args[0] * ( 1 / ( $Register{ $type }->{ $reg }->{'Skalierung'} ));    
+          Log3 $name, 5, "VEDirect ($name) - Set skalierter Setzwert: $args[0] ";
           $args[0] = sprintf("%02X", $args[0]);
           while(length($args[0]) < $Register{ $type }->{ $reg }->{'Payloadnibbles'})   
             {
@@ -728,7 +733,7 @@ sub VEDirect_Set($$@)
           my @setValues = split(':',$Register{ $type }->{ $reg }->{'spezialSetGet'});
           for my $v (0 .. $#setItems)
             {
-              Log3 $name, 3, "VEDirect ($name) - SET: setItems: $setItems[$v] --> InputValue: $args[0]";
+              Log3 $name, 5, "VEDirect ($name) - SET: setItems: $setItems[$v] --> InputValue: $args[0]";
               if ($setItems[$v] eq $args[0])
               {
                 $args[0] = $setValues[$v];
@@ -739,9 +744,13 @@ sub VEDirect_Set($$@)
         }
         $command .= $args[0];
         $command .= VEDirect_ChecksumHEX(0x55,$command);
-        Log3 $name, 3, "VEDirect ($name) - VEDirect_Set command $cmd $debugarg - sending --> $command";
+        Log3 $name, 5, "VEDirect ($name) - VEDirect_Set command $cmd $debugarg - sending --> $command";
         DevIo_SimpleWrite($hash, $command, 2, 1) ;
     }    
+    elsif($reg eq "-" && $cmd eq "Restart")
+    {
+      DevIo_SimpleWrite($hash, ":64F", 2, 1) ;
+    }     
     else
     {
         return $usage;
@@ -870,8 +879,8 @@ sub VEDirect_PollShort($)
     my $key = "";
     my $type = $hash->{DeviceType} ; 
     my $command = ":154";
-    DevIo_SimpleWrite($hash, $command, 2, 1) ;    
-    InternalTimer(gettimeofday() + 10, "VEDirect_PollShort", $hash, 0);
+      DevIo_SimpleWrite($hash, $command, 2, 1) ;    
+      InternalTimer(gettimeofday() + 10, "VEDirect_PollShort", $hash, 0);
 }
 
 ##################################################################################################################################################
@@ -914,55 +923,93 @@ sub VEDirect_Read($$$)
     } 
     #----------------------------------------------------------------------------------------------------------------
     #Text-Nachrichten Auswerten
-
+#   if(defined($attr{$name}) && defined($attr{$name}{"UpdateTime_s"}))
+#   {
+#     Log3 $name, 3, "VEDirect ($name) - Read: Updatetime: $hash->{helper}{updatetime}";
+#     if($hash->{helper}{updatetime} ne "-")
+#     {
+#       #prüfen, ob die aktuelle zeit größer als die mindestzeit ist
+#       #$hash->{helper}{updatetime} = gettimeofday() + $attr{$name}{"UpdateTime_s"} if(gettimeofday() < ($hash->{helper}{updatetime} - $attr{$name}{"UpdateTime_s"})); 
+#       my @tod = gettimeofday();
+#       Log3 $name, 3, "VEDirect ($name) - Read: Updatetime: $hash->{helper}{updatetime} --> timeofday: $tod[0]";
+#       if($tod[0] < $hash->{helper}{updatetime}) 
+#       {
+#         $hash->{helper}{BUFFER} = "";
+#         Log3 $name, 3, "VEDirect ($name) - Read: Buffer cleared";
+#         return "";
+#       }
+#     }
+#     else
+#     {
+#       #neue mindestzeit setzen
+#       my @tod = gettimeofday();
+#       $hash->{helper}{updatetime} = $tod[0] + $attr{$name}{"UpdateTime_s"};
+#       #funktion verlassen
+#       $hash->{helper}{BUFFER} = "";
+#       Log3 $name, 2, "VEDirect ($name) - Read: Buffer cleared";
+#       return "";
+#     }
+#   }
+   
+   
    #Prüfen auf Text-Felder und Checksum
 
-   Log3 $name, 5, "VEDirect ($name) - Read: Actual Buffer: >$buf<";
+   Log3 $name, 4, "VEDirect ($name) - Read: Actual Buffer: >$buf<";
    my ($start1, $start2);
    if(index($startBlock{$type},"|") != -1)
    {
-    ($start1, $start2) = split("|",$startBlock{$type})
+    ($start1, $start2) = split("|",$startBlock{$type});
    }
    else
    {
     $start1 = $start2 = $startBlock{$type};
    }
-   if (index($buf,$startBlock{$type})>0 && index($buf,"Checksum\t")>0 )
+   if ((index($buf,$start1) != -1 || index($buf,$start2) != -1) && index($buf,"Checksum\t") != -1)
    {
-     my @buffer = split("\n",$buf);
-     $buf = "";
+     $start1 =~ s/\r\n//gm;
+     $start2 =~ s/\r\n//gm;
+     my $outstr;
+     my @buffer = split("\r\n",$buf);
      for my $i (0 .. $#buffer)
       {
         my $txtMsg = shift(@buffer);
-        Log3 $name, 5, "VEDirect ($name) - Read: TXT-MSG to check: >$txtMsg<";
         if($txtMsg =~ /(Checksum\t.)/)
         {
-          push(@tmpData, $txtMsg) ;
-          Log3 $name, 5, "VEDirect ($name) - Read: found Checksum - Block completed: >$txtMsg<";
-          if(VEDirect_ChecksumTXT(@buffer) == 0)
-          {
-            Log3 $name, 5, "VEDirect ($name) - Read: found Checksum - Block completed: >$txtMsg<";
-            VEDirect_ParseTXT($hash, @tmpData);
-            @buffer = ();
-            last;
-          }
-          else
-          {}
+          $outstr .= "\r\n".$txtMsg;
+          Log3 $name, 5, "VEDirect ($name) - Read: Checksum found - Block completed";
+          last;
         }
-        elsif ($txtMsg =~ /([A-Z]+.*[0-9]{0,2}\t.+)/)
+        elsif($txtMsg =~ /([A-Z]+.*[0-9]{0,2}\t.+)/) 
         {
-          push(@tmpData, $txtMsg);
-          Log3 $name, 5, "VEDirect ($name) - Read: found TXT-MSG: >$txtMsg<";
+          $outstr .= "\r\n" if!(index($txtMsg,$start1) > -1 || index($txtMsg,$start2) > -1) ;
+          $outstr .= $txtMsg ;
+          Log3 $name, 5, "VEDirect ($name) - Read: TXT-MSG found: >$txtMsg<";
         }
       }
-      $hash->{helper}{BUFFER} = ""; 
+     #$buf = s/ eval($outstr) //gm;
+     my $chk = VEDirect_ChecksumTXT($outstr);
+     Log3 $name, 4, "VEDirect ($name) - Read: Checksum-Testergebnis: $chk";
+     if($chk == 0)
+     {
+       @buffer = split("\r\n",$outstr);
+       Log3 $name, 4, "VEDirect ($name) - Read: Checksum ok --> start parsing <<$outstr>>";
+       VEDirect_ParseTXT($hash, @buffer);
+       @buffer = ();
+     }
+     else
+     {
+       Log3 $name, 4, "VEDirect ($name) - Read: Checksum not ok --> CLR block in Buffer";
+       @buffer = ();
+     }
+     $hash->{helper}{BUFFER} = "";#$buf if(defined($buf)); 
    }
    else
    {
      Log3 $name, 5, "$name - Read: Nachrichtenblock unvollstaendig - warte...";
      # update $hash->{PARTIAL} with the current buffer content 
      $hash->{helper}{BUFFER} = $buf;
-   } 
+   }
+   
     $hash->{helper}{BUFFER} = "" if (length($hash->{helper}{BUFFER}) > 2000);   
 }     
 
@@ -978,13 +1025,18 @@ sub VEDirect_ParseTXT($@)
 
     Log3 $name, 4, "VEDirect ($name) - ParseTXT: Checksumme ok --> Start Auswertung";
     readingsBeginUpdate($hash);
-    #readingsBulkUpdateIfChanged($hash,"SerialTextInput",join("\n",@e));
+    readingsBulkUpdate($hash,"SerialTextInput",join("\n",@e));
     for my $i (0 .. int(@e))
     {
       #Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- ";
+      
       my $cnt = int(@e);
-      Log3 $name, 3, "VEDirect ($name) - ParseTXT: Schleife $i von $cnt";
+      Log3 $name, 5, "VEDirect ($name) - ParseTXT: Schleife $i von $cnt";
+      next if(index($e[$i],"\t") == -1);
       my @raw = split("\t",$e[$i]); 
+      next if($raw[0] eq "Checksum");
+      next if($raw[0] eq "");
+      $raw[0] =~ s/\r\n//g;
       if (defined($TextMapping{ $raw[0] } )) 
       {
         if($raw[0] eq "WARN")
@@ -992,15 +1044,24 @@ sub VEDirect_ParseTXT($@)
           Log3 $name, 5, "VEDirect ($name) - ParseTXT: SelCase Warn";
           my $Reg =$TextMapping{ $raw[0] }->{ $type }->{'Register'};
           my $Reading = $Register{ $type }->{ $Reg }->{'ReadingName'};
-          Log3 $name, 3, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register $Reg -->$Reading --> $raw[1] ";
+          Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register $Reg -->$Reading --> $raw[1] ";
           readingsBulkUpdateIfChanged($hash,$Reading,$raw[1]);
         }
         elsif($raw[0] eq "AR")
         {
           Log3 $name, 5, "VEDirect ($name) - ParseTXT: SelCase AR";
-          my $Reg =$TextMapping{ $raw[0] }->{ $type }->{'Register'};
-          my $Reading = $Register{ $type }->{ $Reg }->{'ReadingName'};
-          Log3 $name, 3, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register $Reg --> $Reading --> $raw[1] ";
+          my $Reading;
+          if ($TextMapping{ $raw[0] }->{ $type }->{'Register'} == "-")
+          {
+            $Reading = $TextMapping{ $raw[0] }->{ $type }->{'ReName'};
+          }
+          else
+          {
+            my $Reading = $Register{ $type }->{ $TextMapping{ $raw[0] }->{ $type }->{'Register'} }->{'ReadingName'};
+          } 
+          
+          Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register >--< --> $Reading --> $raw[1] ";
+          $raw[1] = $ARtext{$raw[1]} if (defined($ARtext{$raw[1]}));
           readingsBulkUpdateIfChanged($hash,$Reading,$raw[1]);
         }
         elsif($raw[0] eq "MPPT")
@@ -1025,28 +1086,27 @@ sub VEDirect_ParseTXT($@)
           {
            Log3 $name, 5, "VEDirect ($name) - ParseTXT: SelCase PID2";
            my $Rvalue = $PrID{ $raw[1] }; 
-           Log3 $name, 3, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register $Reg -->$Reading --> $Rvalue ";
+           Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register $Reg -->$Reading --> $Rvalue ";
            readingsBulkUpdateIfChanged($hash,$Reading,$Rvalue);
           }
           else
           {
             Log3 $name, 5, "VEDirect ($name) - ParseTXT: SelCase PID3";
-            Log3 $name, 3, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register $Reg -->$Reading --> $raw[1] ";
+            Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register $Reg -->$Reading --> $raw[1] ";
             readingsBulkUpdateIfChanged($hash,$Reading,$raw[1]);
           }
         }
         elsif($raw[0] eq "FW")
         {
           Log3 $name, 5, "VEDirect ($name) - ParseTXT: SelCase FW";
-          my $Reg =$TextMapping{ $raw[0] }->{ $type }->{'Register'};
-          my $Reading = $Register{ $type }->{ $Reg }->{'ReadingName'};
+          my $Reading = $TextMapping{ $raw[0] }->{ $type }->{'ReName'};
           my $Rvalue = substr($raw[1],1,1).".".substr($raw[1],2);
-          Log3 $name, 3, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register $Reg -->$Reading --> $Rvalue ";
+          Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register <--> -->$Reading --> $Rvalue ";
           readingsBulkUpdateIfChanged($hash,$Reading,$Rvalue);
         }
         elsif ($TextMapping{$raw[0]}->{$type}->{'Register'} ne "-" && $raw[0] ne "PID" && $raw[0] ne "WARN" && $raw[0] ne "AR" && $raw[0] ne "FW")
         {
-          Log3 $name, 3, "VEDirect ($name) - ParseTXT: SelCase Reg ne -";
+          Log3 $name, 5, "VEDirect ($name) - ParseTXT: SelCase Reg ne -";
           #Register bekannt --> Auswerten und Reading schreiben
           my $Reg = $TextMapping{ $raw[0] }->{ $type }->{'Register'}; 
           my $scale = $TextMapping{ $raw[0] }->{ $type }->{'scale'};
@@ -1093,9 +1153,9 @@ sub VEDirect_ParseTXT($@)
           my $scale = $TextMapping{ $raw[0] }->{ $type }->{'scale'};
           my $Reading = $TextMapping{ $raw[0] }->{ $type }->{'ReName'};
           my $Rvalue = $raw[1];
-		      my $Einheit = $TextMapping{ $raw[0] }->{ $type }->{'Einheit'};
+          my $Einheit = $TextMapping{ $raw[0] }->{ $type }->{'Einheit'};
           $Rvalue = $Rvalue * $scale if ($scale ne "0");
-		      $Rvalue .= " ".$Einheit if defined($Einheit) ;
+          $Rvalue .= " ".$Einheit if defined($Einheit) ;
           #readingsBulkUpdateIfChanged($hash, $reading, $value); 
           Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register unbekannt -->$Reading --> $Rvalue ";
           readingsBulkUpdateIfChanged($hash,$Reading,$Rvalue) if($Reading ne "Checksum" && $Reading ne "-");
@@ -1143,7 +1203,7 @@ sub VEDirect_ParseHEX($$)
   {
    #Async message
    $id = "0x".substr($msg,4,2).substr($msg,2,2);   #:A D7ED 00 0E00 79     --> Reg:EDD7 Flag:00, Value 000E  (Scalierung 0,1A , 4 Paylodnibbles)
-   Log3 $name, 3, "VEDirect ($name) - ParseHex: Receives Async Msg: $msg for RegisterID $id";
+   Log3 $name, 5, "VEDirect ($name) - ParseHex: Receives Async Msg: $msg for RegisterID $id";
     if ( defined ($Register{ $type }->{ $id }))
     { 
       
@@ -1207,14 +1267,16 @@ sub VEDirect_ParseHEX($$)
  elsif($response == "3")
   {
    #Unknown
+   Log3 $name, 2, "VEDirect ($name) - Hex_Message_Error -Unknown command";   
    return "Hex_Message_Error -Unknown command";
-   Log3 $name, 3, "VEDirect ($name) - Hex_Message_Error -Unknown command";
+   
   }
  elsif($response == "4")
   {
    #Error
+   Log3 $name, 2, "VEDirect ($name) - Hex_Message_Error -Frame error";
    return "Hex_Message_Error -Frame error"; 
-   Log3 $name, 3, "VEDirect ($name) - Hex_Message_Error -Frame error";
+   
   }
  elsif($response == "5")
   {
@@ -1296,7 +1358,7 @@ sub VEDirect_ParseHEX($$)
         }
       else
       {
-       Log3 $name, 3, "VEDirect ($name) - ParseHEX: Undefined payloadlength for $Register{ $type }->{ $id }->{'Bezeichnung'} ($id)"; 
+       Log3 $name, 5, "VEDirect ($name) - ParseHEX: Undefined payloadlength for $Register{ $type }->{ $id }->{'Bezeichnung'} ($id)"; 
        return undef;
       }
      }
@@ -1462,6 +1524,7 @@ sub VEDirect_ChecksumHEX($$)
       $val = hex(substr($cmd,$i,1)) if($i==1);
       $val = hex(substr($cmd,$i,2)) if $i % 2 == 0;   
       $startVal -= $val;
+      
    } 
    $startVal &= 0xFF;
    return (sprintf("%02X", $startVal));;
@@ -1471,14 +1534,14 @@ sub VEDirect_ChecksumHEX($$)
 ################################################################################################################################################## 
 sub VEDirect_ChecksumTXT($)
 {
-  my (@chk) = @_;
-  my $chkbuff = join("\n",@chk);
+  my $chkbuff = @_;
+  #my (@chk) = @_;
+  #my $chkbuff = join("\r\n",@chk);
   my $chksum = 0;
   for my $i (1 .. length($chkbuff))
   {
    $chksum += ord(substr($chkbuff,$i,1));     #string in Nummer verwandeln und aufaddieren
-  } 
-  ##$chksum += 13;
+  }
   $chksum = $chksum % 256;   
   return $chksum;     
 }
@@ -1544,10 +1607,10 @@ sub VEDirect_LogHistory($)
     my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
     my $reg = ":7501000";
     $reg .= VEDirect_ChecksumHEX(0x55,$reg);
-    Log3 $name, 4, "VEDirect ($name) - LogHistory get command $reg ";  
+    Log3 $name, 5, "VEDirect ($name) - LogHistory get command $reg ";  
     DevIo_SimpleWrite($hash, $reg, 2, 1) ; 
     Time::HiRes::sleep(0.2);
-	my $Hdate = POSIX::strftime("%Y%m%d",localtime(time));
+  my $Hdate = POSIX::strftime("%Y%m%d",localtime(time));
     my $Data = ReadingsVal($name, "History_".$Hdate,"Reading nicht vorhanden");  
     $year += 1900;
     my $filename = '/mnt/ramdisk/History'.$year.'.log';
