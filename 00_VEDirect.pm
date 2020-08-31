@@ -1,4 +1,4 @@
-#Version 8.73 Autor: Askie (04.06.2020)
+#Version 8.81 Autor: Askie (31.08.2020)
 #########################################################################
 # fhem Modul fuer Victron VE.Direct Hex-Protokoll
 #  
@@ -8,9 +8,11 @@
 package main;
 
 use strict;                          #
-use warnings;                        #
+##use warnings;                        #
 use Time::HiRes qw(gettimeofday);    #
 use Scalar::Util qw(looks_like_number);
+use DevIo;
+use GPUtils qw(:all);
 
 my %startBlock = (
 "BMV"=>"\r\nH1|\r\nPID",
@@ -18,102 +20,103 @@ my %startBlock = (
 "Inverter"=>"\r\nPID"
 );
 
+
 #########################################################################
-#Key: "Register-ID"=>"Bezeichnung,Einheit,Skalierung/Bit,LängePayload(nibbles),min,max,zyklisch abfragen, getConfigAll, BMV,MPPT,Inverter,specialset/getValues,setGetItems",my %Register = ("0x0004"=>"Restore_default°-°-°-°-°-°000°000°-*-°-*-°-*-°-",
+#Key: "Register-ID"=>"Bezeichnung,Einheit,Skalierung/Bit,L?ngePayload(nibbles),min,max,zyklisch abfragen, getConfigAll, BMV,MPPT,Inverter,specialset/getValues,setGetItems",my %Register = ("0x0004"=>"Restore_default?-?-?-?-?-?000?000?-*-?-*-?-*-?-",
 my %BMV = (
 "0x0100"=>{"Bezeichnung"=>"PID", "ReadingName"=>"Devicetype_PID", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"PID:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0300"=>{"Bezeichnung"=>"Depth of the deepest discharge", "ReadingName"=>"Depth of the deepest discharge", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Depth_of_the_deepest_discharge:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0301"=>{"Bezeichnung"=>"Depth of the last discharge", "ReadingName"=>"Depth of the last discharge", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Depth_of_the_last_discharge:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0302"=>{"Bezeichnung"=>"Depth of the average discharge", "ReadingName"=>"Depth of the average discharge", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Depth_of_the_average_discharge:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0303"=>{"Bezeichnung"=>"Number of cycles", "ReadingName"=>"Number of cycles", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_cycles:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0304"=>{"Bezeichnung"=>"Number of full discharges", "ReadingName"=>"Number of full discharges", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_full_discharges:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0305"=>{"Bezeichnung"=>"Cumulative Amp Hours", "ReadingName"=>"Cumulative Amp Hours", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Cumulative_Amp_Hours:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0306"=>{"Bezeichnung"=>"Minimum Voltage", "ReadingName"=>"Minimum Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Minimum_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0307"=>{"Bezeichnung"=>"Maximum Voltage", "ReadingName"=>"Maximum Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Maximum_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0308"=>{"Bezeichnung"=>"Seconds since full charge", "ReadingName"=>"Seconds since full charge", "Einheit"=>"s", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Seconds_since_full_charge:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0309"=>{"Bezeichnung"=>"Number of automatic synchronizations", "ReadingName"=>"Number of automatic synchronizations", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_automatic_synchronizations:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x030A"=>{"Bezeichnung"=>"Number of Low Voltage Alarms", "ReadingName"=>"Number of Low Voltage Alarms", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_Low_Voltage_Alarms:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x030B"=>{"Bezeichnung"=>"Number of High Voltage Alarms", "ReadingName"=>"Number of High Voltage Alarms", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_High_Voltage_Alarms:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x030E"=>{"Bezeichnung"=>"Minimum Starter Voltage", "ReadingName"=>"Minimum Starter Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Minimum_Starter_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x030F"=>{"Bezeichnung"=>"Maximum Starter Voltage", "ReadingName"=>"Maximum Starter Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Maximum_Starter_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0310"=>{"Bezeichnung"=>"Amount of discharged energy", "ReadingName"=>"Amount of discharged energy", "Einheit"=>"kWh", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Amount_of_discharged_energy:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0311"=>{"Bezeichnung"=>"Amount of charged energy", "ReadingName"=>"Amount of charged energy", "Einheit"=>"kWh", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Amount_of_charged_energy:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0300"=>{"Bezeichnung"=>"Depth of the deepest discharge", "ReadingName"=>"Depth_of_the_deepest_discharge", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Depth_of_the_deepest_discharge:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0301"=>{"Bezeichnung"=>"Depth of the last discharge", "ReadingName"=>"Depth_of_the_last_discharge", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Depth_of_the_last_discharge:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0302"=>{"Bezeichnung"=>"Depth of the average discharge", "ReadingName"=>"Depth_of_the_averag_discharge", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Depth_of_the_average_discharge:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0303"=>{"Bezeichnung"=>"Number of cycles", "ReadingName"=>"Number_of_cycles", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_cycles:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0304"=>{"Bezeichnung"=>"Number of full discharges", "ReadingName"=>"Number_of_full discharges", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_full_discharges:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0305"=>{"Bezeichnung"=>"Cumulative Amp Hours", "ReadingName"=>"Cumulative_Amp_Hours", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Cumulative_Amp_Hours:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0306"=>{"Bezeichnung"=>"Minimum Voltage", "ReadingName"=>"Minimum_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Minimum_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0307"=>{"Bezeichnung"=>"Maximum Voltage", "ReadingName"=>"Maximum_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Maximum_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0308"=>{"Bezeichnung"=>"Seconds since full charge", "ReadingName"=>"Seconds_since_full_charge", "Einheit"=>"s", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Seconds_since_full_charge:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0309"=>{"Bezeichnung"=>"Number of automatic synchronizations", "ReadingName"=>"Number_of_automatic_synchronizations", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_automatic_synchronizations:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x030A"=>{"Bezeichnung"=>"Number of Low Voltage Alarms", "ReadingName"=>"Number_of_Low_Voltage_Alarms", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_Low_Voltage_Alarms:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x030B"=>{"Bezeichnung"=>"Number of High Voltage Alarms", "ReadingName"=>"Number_of_High_Voltage_Alarms", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_High_Voltage_Alarms:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x030E"=>{"Bezeichnung"=>"Minimum Starter Voltage", "ReadingName"=>"Minimum_Starter_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Minimum_Starter_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x030F"=>{"Bezeichnung"=>"Maximum Starter Voltage", "ReadingName"=>"Maximum_Starter_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Maximum_Starter_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0310"=>{"Bezeichnung"=>"Amount of discharged energy", "ReadingName"=>"Amount_of_discharged_energy", "Einheit"=>"kWh", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Amount_of_discharged_energy:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0311"=>{"Bezeichnung"=>"Amount of charged energy", "ReadingName"=>"Amount_of_charged_energy", "Einheit"=>"kWh", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Amount_of_charged_energy:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0x0320"=>{"Bezeichnung"=>"ALARM_LOW_VOLTAGE_SET", "ReadingName"=>"ALARM_LOW_VOLTAGE_SET", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"ALARM_LOW_VOLTAGE_SET:noArg", "setValues"=>"ALARM_LOW_VOLTAGE_SET", "spezialSetGet"=>"-"},
 "0x0321"=>{"Bezeichnung"=>"ALARM_LOW_VOLTAGE_CLEAR", "ReadingName"=>"ALARM_LOW_VOLTAGE_CLEAR", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"ALARM_LOW_VOLTAGE_CLEAR:noArg", "setValues"=>"ALARM_LOW_VOLTAGE_CLEAR", "spezialSetGet"=>"-"},
-"0x0322"=>{"Bezeichnung"=>"Alarm High Voltage", "ReadingName"=>"Alarm High Voltage", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Voltage:noArg", "setValues"=>"Alarm_High_Voltage:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0323"=>{"Bezeichnung"=>"Alarm High Voltage Clear", "ReadingName"=>"Alarm High Voltage Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Voltage_Clear:noArg", "setValues"=>"Alarm_High_Voltage_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0324"=>{"Bezeichnung"=>"Alarm Low Starter", "ReadingName"=>"Alarm Low Starter", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_Starter:noArg", "setValues"=>"Alarm_Low_Starter:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0325"=>{"Bezeichnung"=>"Alarm Low Starter Clear", "ReadingName"=>"Alarm Low Starter Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_Starter_Clear:noArg", "setValues"=>"Alarm_Low_Starter_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0326"=>{"Bezeichnung"=>"Alarm High Starter", "ReadingName"=>"Alarm High Starter", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Starter:noArg", "setValues"=>"Alarm_High_Starter:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0327"=>{"Bezeichnung"=>"Alarm High Starter Clear", "ReadingName"=>"Alarm High Starter Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Starter_Clear:noArg", "setValues"=>"Alarm_High_Starter_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0328"=>{"Bezeichnung"=>"Alarm Low SOC", "ReadingName"=>"Alarm Low SOC", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_SOC:noArg", "setValues"=>"Alarm_Low_SOC:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0329"=>{"Bezeichnung"=>"Alarm Low SOC Clear", "ReadingName"=>"Alarm Low SOC Clear", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_SOC_Clear:noArg", "setValues"=>"Alarm_Low_SOC_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x032A"=>{"Bezeichnung"=>"Alarm Low Temperature", "ReadingName"=>"Alarm Low Temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_Temperature:noArg", "setValues"=>"Alarm_Low_Temperature:multiple,disabled", "spezialSetGet"=>"0:alt"},
-"0x032B"=>{"Bezeichnung"=>"Alarm Low Temperature Clear", "ReadingName"=>"Alarm Low Temperature Clear", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_Temperature_Clear:noArg", "setValues"=>"Alarm_Low_Temperature_Clear:multiple,disabled", "spezialSetGet"=>"0:alt"},
-"0x032C"=>{"Bezeichnung"=>"Alarm High Temperature", "ReadingName"=>"Alarm High Temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Temperature:noArg", "setValues"=>"Alarm_High_Temperature:multiple,disabled", "spezialSetGet"=>"0:alt"},
-"0x032D"=>{"Bezeichnung"=>"Alarm High Temperature Clear", "ReadingName"=>"Alarm High Temperature Clear", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Temperature_Clear:noArg", "setValues"=>"Alarm_High_Temperature_Clear:multiple,disabled", "spezialSetGet"=>"0:alt"},
-"0x0331"=>{"Bezeichnung"=>"Alarm Mid Voltage", "ReadingName"=>"Alarm Mid Voltage", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Mid_Voltage:noArg", "setValues"=>"Alarm_Mid_Voltage:slider,0,0.1,99", "spezialSetGet"=>"-"},
-"0x0332"=>{"Bezeichnung"=>"Alarm Mid Voltage Clear", "ReadingName"=>"Alarm Mid Voltage Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Mid_Voltage_Clear:noArg", "setValues"=>"Alarm_Mid_Voltage_Clear:slider,0,0.1,99", "spezialSetGet"=>"-"},
-"0x034D"=>{"Bezeichnung"=>"Relay Invert", "ReadingName"=>"Relay Invert", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Invert:noArg", "setValues"=>"Relay_Invert:off,on", "spezialSetGet"=>"0:1"},
-"0x034E"=>{"Bezeichnung"=>"Relay State_Control", "ReadingName"=>"Relay State_Control", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"1", "getConfigAll"=>"1", "getValues"=>"Relay_State_Control:noArg", "setValues"=>"Relay_State_Control:open,closed", "spezialSetGet"=>"0:1"},
-"0x034F"=>{"Bezeichnung"=>"Relay Mode", "ReadingName"=>"Relay Mode", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"2", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Mode:noArg", "setValues"=>"Relay_Mode:default,chrg,rem", "spezialSetGet"=>"0:1:2"},
+"0x0322"=>{"Bezeichnung"=>"Alarm High Voltage", "ReadingName"=>"Alarm_High_Voltage", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Voltage:noArg", "setValues"=>"Alarm_High_Voltage:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0323"=>{"Bezeichnung"=>"Alarm High Voltage Clear", "ReadingName"=>"Alarm_High_Voltage_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Voltage_Clear:noArg", "setValues"=>"Alarm_High_Voltage_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0324"=>{"Bezeichnung"=>"Alarm Low Starter", "ReadingName"=>"Alarm_Low_Starter", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_Starter:noArg", "setValues"=>"Alarm_Low_Starter:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0325"=>{"Bezeichnung"=>"Alarm Low Starter Clear", "ReadingName"=>"Alarm_Low Starter_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_Starter_Clear:noArg", "setValues"=>"Alarm_Low_Starter_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0326"=>{"Bezeichnung"=>"Alarm High Starter", "ReadingName"=>"Alarm_High_Starter", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Starter:noArg", "setValues"=>"Alarm_High_Starter:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0327"=>{"Bezeichnung"=>"Alarm High Starter Clear", "ReadingName"=>"Alarm_High_Starter_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Starter_Clear:noArg", "setValues"=>"Alarm_High_Starter_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0328"=>{"Bezeichnung"=>"Alarm Low SOC", "ReadingName"=>"Alarm_Low_SOC", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_SOC:noArg", "setValues"=>"Alarm_Low_SOC:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0329"=>{"Bezeichnung"=>"Alarm Low SOC Clear", "ReadingName"=>"Alarm_Low_SOC Clear", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_SOC_Clear:noArg", "setValues"=>"Alarm_Low_SOC_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x032A"=>{"Bezeichnung"=>"Alarm Low Temperature", "ReadingName"=>"Alarm_Low_Temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_Temperature:noArg", "setValues"=>"Alarm_Low_Temperature:multiple,disabled", "spezialSetGet"=>"0:alt"},
+"0x032B"=>{"Bezeichnung"=>"Alarm Low Temperature Clear", "ReadingName"=>"Alarm_Low_Temperature_Clear", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_Temperature_Clear:noArg", "setValues"=>"Alarm_Low_Temperature_Clear:multiple,disabled", "spezialSetGet"=>"0:alt"},
+"0x032C"=>{"Bezeichnung"=>"Alarm High Temperature", "ReadingName"=>"Alarm_High_Temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Temperature:noArg", "setValues"=>"Alarm_High_Temperature:multiple,disabled", "spezialSetGet"=>"0:alt"},
+"0x032D"=>{"Bezeichnung"=>"Alarm High Temperature Clear", "ReadingName"=>"Alarm_High_Temperature_Clear", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Temperature_Clear:noArg", "setValues"=>"Alarm_High_Temperature_Clear:multiple,disabled", "spezialSetGet"=>"0:alt"},
+"0x0331"=>{"Bezeichnung"=>"Alarm Mid Voltage", "ReadingName"=>"Alarm_Mid_Voltage", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Mid_Voltage:noArg", "setValues"=>"Alarm_Mid_Voltage:slider,0,0.1,99", "spezialSetGet"=>"-"},
+"0x0332"=>{"Bezeichnung"=>"Alarm Mid Voltage Clear", "ReadingName"=>"Alarm_Mid_Voltage_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Mid_Voltage_Clear:noArg", "setValues"=>"Alarm_Mid_Voltage_Clear:slider,0,0.1,99", "spezialSetGet"=>"-"},
+"0x034D"=>{"Bezeichnung"=>"Relay Invert", "ReadingName"=>"Relay_Invert", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Invert:noArg", "setValues"=>"Relay_Invert:off,on", "spezialSetGet"=>"0:1"},
+"0x034E"=>{"Bezeichnung"=>"Relay State_Control", "ReadingName"=>"Relay_State_Control", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"1", "getConfigAll"=>"1", "getValues"=>"Relay_State_Control:noArg", "setValues"=>"Relay_State_Control:open,closed", "spezialSetGet"=>"0:1"},
+"0x034F"=>{"Bezeichnung"=>"Relay Mode", "ReadingName"=>"Relay_Mode", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"2", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Mode:noArg", "setValues"=>"Relay_Mode:default,chrg,rem", "spezialSetGet"=>"0:1:2"},
 "0x0350"=>{"Bezeichnung"=>"Relay_battery_low_voltage_set", "ReadingName"=>"Relay_battery_low_voltage_set", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"9", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_battery_low_voltage_set:noArg", "setValues"=>"Relay_battery_low_voltage_set:slider,9,0.1,95", "spezialSetGet"=>"-"},
 "0x0351"=>{"Bezeichnung"=>"Relay_battery_low_voltage_clear", "ReadingName"=>"Relay_battery_low_voltage_clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"9", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_battery_low_voltage_clear:noArg", "setValues"=>"Relay_battery_low_voltage_clear:slider,9,0.1,95", "spezialSetGet"=>"-"},
 "0x0352"=>{"Bezeichnung"=>"Relay_battery_high_voltage_set", "ReadingName"=>"Relay_battery_high_voltage_set", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"9", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_battery_high_voltage_set:noArg", "setValues"=>"Relay_battery_high_voltage_set:slider,9,0.1,95", "spezialSetGet"=>"-"},
 "0x0353"=>{"Bezeichnung"=>"Relay_battery_high_voltage_clear", "ReadingName"=>"Relay_battery_high_voltage_clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"9", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_battery_high_voltage_clear:noArg", "setValues"=>"Relay_battery_high_voltage_clear:slider,9,0.1,95", "spezialSetGet"=>"-"},
-"0x0354"=>{"Bezeichnung"=>"Relay Low Starter", "ReadingName"=>"Relay Low Starter", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Starter:noArg", "setValues"=>"Relay_Low_Starter:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0355"=>{"Bezeichnung"=>"Relay Low Starter Clear", "ReadingName"=>"Relay Low Starter Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Starter_Clear:noArg", "setValues"=>"Relay_Low_Starter_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0356"=>{"Bezeichnung"=>"Relay High Starter", "ReadingName"=>"Relay High Starter", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_High_Starter:noArg", "setValues"=>"Relay_High_Starter:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0357"=>{"Bezeichnung"=>"Relay High Starter Clear", "ReadingName"=>"Relay High Starter Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_High_Starter_Clear:noArg", "setValues"=>"Relay_High_Starter_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x035A"=>{"Bezeichnung"=>"Relay Low Temperature", "ReadingName"=>"Relay Low Temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Temperature:noArg", "setValues"=>"Relay_Low_Temperature:multiple,disabled", "spezialSetGet"=>"0:alt"},
-"0x035B"=>{"Bezeichnung"=>"Relay Low Temperature Clear", "ReadingName"=>"Relay Low Temperature Clear", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Temperature_Clear:noArg", "setValues"=>"Relay_Low_Temperature_Clear:multiple,disabled", "spezialSetGet"=>"0:alt"},
-"0x035C"=>{"Bezeichnung"=>"Relay High Temperature", "ReadingName"=>"Relay High Temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_High_Temperature:noArg", "setValues"=>"Relay_High_Temperature:multiple,disabled", "spezialSetGet"=>"0:alt"},
+"0x0354"=>{"Bezeichnung"=>"Relay Low Starter", "ReadingName"=>"Relay_Low_Starter", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Starter:noArg", "setValues"=>"Relay_Low_Starter:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0355"=>{"Bezeichnung"=>"Relay Low Starter Clear", "ReadingName"=>"Relay_Low_Starter Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Starter_Clear:noArg", "setValues"=>"Relay_Low_Starter_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0356"=>{"Bezeichnung"=>"Relay High Starter", "ReadingName"=>"Rela_High_Starter", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_High_Starter:noArg", "setValues"=>"Relay_High_Starter:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0357"=>{"Bezeichnung"=>"Relay High Starter Clear", "ReadingName"=>"Relay_High_Starter_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_High_Starter_Clear:noArg", "setValues"=>"Relay_High_Starter_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x035A"=>{"Bezeichnung"=>"Relay Low Temperature", "ReadingName"=>"Relay_Low_Temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Temperature:noArg", "setValues"=>"Relay_Low_Temperature:multiple,disabled", "spezialSetGet"=>"0:alt"},
+"0x035B"=>{"Bezeichnung"=>"Relay Low Temperature Clear", "ReadingName"=>"Relay_Low_Temperature_Clear", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Temperature_Clear:noArg", "setValues"=>"Relay_Low_Temperature_Clear:multiple,disabled", "spezialSetGet"=>"0:alt"},
+"0x035C"=>{"Bezeichnung"=>"Relay High Temperature", "ReadingName"=>"Relay_High_Temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_High_Temperature:noArg", "setValues"=>"Relay_High_Temperature:multiple,disabled", "spezialSetGet"=>"0:alt"},
 "0x035D"=>{"Bezeichnung"=>"Relay High Temperature Clear", "ReadingName"=>"Relay High Temperature Clear", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_High_Temperature_Clear:noArg", "setValues"=>"Relay_High_Temperature_Clear:multiple,disabled", "spezialSetGet"=>"0:alt"},
-"0x0361"=>{"Bezeichnung"=>"Relay Mid Voltage", "ReadingName"=>"Relay Mid Voltage", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Mid_Voltage:noArg", "setValues"=>"Relay_Mid_Voltage:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0362"=>{"Bezeichnung"=>"Relay Mid Voltage Clear", "ReadingName"=>"Relay Mid Voltage Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Mid_Voltage_Clear:noArg", "setValues"=>"Relay_Mid_Voltage_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0382"=>{"Bezeichnung"=>"Mid-point voltage", "ReadingName"=>"Mid-point voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Mid-point_voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0383"=>{"Bezeichnung"=>"Mid-point voltage deviation", "ReadingName"=>"Mid-point voltage deviation", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Mid-point_voltage_deviation:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0361"=>{"Bezeichnung"=>"Relay Mid Voltage", "ReadingName"=>"Relay_Mid_Voltage", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Mid_Voltage:noArg", "setValues"=>"Relay_Mid_Voltage:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0362"=>{"Bezeichnung"=>"Relay Mid Voltage Clear", "ReadingName"=>"Relay_Mid_Voltage_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Mid_Voltage_Clear:noArg", "setValues"=>"Relay_Mid_Voltage_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0382"=>{"Bezeichnung"=>"Mid-point voltage", "ReadingName"=>"Mid-point_voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Mid-point_voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0383"=>{"Bezeichnung"=>"Mid-point voltage deviation", "ReadingName"=>"Mid-point_voltage_deviation", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Mid-point_voltage_deviation:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0x0FFE"=>{"Bezeichnung"=>"TTG", "ReadingName"=>"TTG", "Einheit"=>"min", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"TTG:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0FFF"=>{"Bezeichnung"=>"SOC", "ReadingName"=>"SOC", "Einheit"=>"proz", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"SOC:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x1000"=>{"Bezeichnung"=>"Battery Capacity", "ReadingName"=>"Battery Capacity", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"9999", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_Capacity:noArg", "setValues"=>"Battery_Capacity", "spezialSetGet"=>"-"},
-"0x1001"=>{"Bezeichnung"=>"Charged Voltage", "ReadingName"=>"Charged Voltage", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Charged_Voltage:noArg", "setValues"=>"Charged_Voltage", "spezialSetGet"=>"-"},
-"0x1002"=>{"Bezeichnung"=>"Tail Current", "ReadingName"=>"Tail Current", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0.5", "max"=>"10", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Tail_Current:noArg", "setValues"=>"Tail_Current:slider,0.5,0.1,10", "spezialSetGet"=>"-"},
-"0x1003"=>{"Bezeichnung"=>"Charged Detection Time", "ReadingName"=>"Charged Detection Time", "Einheit"=>"min", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"1", "max"=>"50", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Charged_Detection_Time:noArg", "setValues"=>"Charged_Detection_Time:slider,1,1,50", "spezialSetGet"=>"-"},
-"0x1004"=>{"Bezeichnung"=>"Charge Efficiency", "ReadingName"=>"Charge Efficiency", "Einheit"=>"proz", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"50", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Charge_Efficiency:noArg", "setValues"=>"Charge_Efficiency:slider,50,1,99", "spezialSetGet"=>"-"},
-"0x1005"=>{"Bezeichnung"=>"Peukert Coefficient", "ReadingName"=>"Peukert Coefficient", "Einheit"=>"", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"1", "max"=>"1.5", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Peukert_Coefficient:noArg", "setValues"=>"Peukert_Coefficient:slider,1,0.01,1.5", "spezialSetGet"=>"-"},
-"0x1006"=>{"Bezeichnung"=>"Current Threshold", "ReadingName"=>"Current Threshold", "Einheit"=>"A", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"2", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Current_Threshold:noArg", "setValues"=>"Current_Threshold:slider,0,0.01,2", "spezialSetGet"=>"-"},
-"0x1007"=>{"Bezeichnung"=>"TTG Delta T", "ReadingName"=>"TTG Delta T", "Einheit"=>"min", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"12", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"TTG_Delta_T:noArg", "setValues"=>"TTG_Delta_T:slider,0,1,12", "spezialSetGet"=>"-"},
-"0x1008"=>{"Bezeichnung"=>"Discharge Floor Relay Low Soc Set", "ReadingName"=>"Discharge Floor Relay Low Soc Set", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Discharge_Floor_Relay_Low_Soc_Set:noArg", "setValues"=>"Discharge_Floor_Relay_Low_Soc_Set:slider,0,0.1,99", "spezialSetGet"=>"-"},
-"0x1009"=>{"Bezeichnung"=>"Relay Low Soc Clear", "ReadingName"=>"Relay Low Soc Clear", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Soc_Clear:noArg", "setValues"=>"Relay_Low_Soc_Clear:slider,0,0.1,99", "spezialSetGet"=>"-"},
+"0x0FFF"=>{"Bezeichnung"=>"SOC", "ReadingName"=>"SOC", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"SOC:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x1000"=>{"Bezeichnung"=>"Battery Capacity", "ReadingName"=>"Battery_Capacity", "Einheit"=>"Ah", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"9999", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_Capacity:noArg", "setValues"=>"Battery_Capacity", "spezialSetGet"=>"-"},
+"0x1001"=>{"Bezeichnung"=>"Charged Voltage", "ReadingName"=>"Charged_Voltage", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Charged_Voltage:noArg", "setValues"=>"Charged_Voltage", "spezialSetGet"=>"-"},
+"0x1002"=>{"Bezeichnung"=>"Tail Current", "ReadingName"=>"Tail_Current", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0.5", "max"=>"10", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Tail_Current:noArg", "setValues"=>"Tail_Current:slider,0.5,0.1,10", "spezialSetGet"=>"-"},
+"0x1003"=>{"Bezeichnung"=>"Charged Detection Time", "ReadingName"=>"Charged_Detection_Time", "Einheit"=>"min", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"1", "max"=>"50", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Charged_Detection_Time:noArg", "setValues"=>"Charged_Detection_Time:slider,1,1,50", "spezialSetGet"=>"-"},
+"0x1004"=>{"Bezeichnung"=>"Charge Efficiency", "ReadingName"=>"Charge_Efficiency", "Einheit"=>"proz", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"50", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Charge_Efficiency:noArg", "setValues"=>"Charge_Efficiency:slider,50,1,99", "spezialSetGet"=>"-"},
+"0x1005"=>{"Bezeichnung"=>"Peukert Coefficient", "ReadingName"=>"Peukert_Coefficient", "Einheit"=>"", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"1", "max"=>"1.5", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Peukert_Coefficient:noArg", "setValues"=>"Peukert_Coefficient:slider,1,0.01,1.5", "spezialSetGet"=>"-"},
+"0x1006"=>{"Bezeichnung"=>"Current Threshold", "ReadingName"=>"Current_Threshold", "Einheit"=>"A", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"2", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Current_Threshold:noArg", "setValues"=>"Current_Threshold:slider,0,0.01,2", "spezialSetGet"=>"-"},
+"0x1007"=>{"Bezeichnung"=>"TTG Delta T", "ReadingName"=>"TTG_Delta_T", "Einheit"=>"min", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"12", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"TTG_Delta_T:noArg", "setValues"=>"TTG_Delta_T:slider,0,1,12", "spezialSetGet"=>"-"},
+"0x1008"=>{"Bezeichnung"=>"Discharge Floor Relay Low Soc Set", "ReadingName"=>"Discharge_Floor_Relay_Low_Soc_Set", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Discharge_Floor_Relay_Low_Soc_Set:noArg", "setValues"=>"Discharge_Floor_Relay_Low_Soc_Set:slider,0,0.1,99", "spezialSetGet"=>"-"},
+"0x1009"=>{"Bezeichnung"=>"Relay Low Soc Clear", "ReadingName"=>"Relay_Low_Soc_Clear", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Soc_Clear:noArg", "setValues"=>"Relay_Low_Soc_Clear:slider,0,0.1,99", "spezialSetGet"=>"-"},
 "0x100A"=>{"Bezeichnung"=>"Relay_minimum_enabled_time", "ReadingName"=>"Relay_minimum_enabled_time", "Einheit"=>"min", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"500", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_minimum_enabled_time:noArg", "setValues"=>"Relay_minimum_enabled_time:slider,0,1,500", "spezialSetGet"=>"-"},
-"0x100B"=>{"Bezeichnung"=>"Relay Disable Time", "ReadingName"=>"Relay Disable Time", "Einheit"=>"min", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"500", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Disable_Time:noArg", "setValues"=>"Relay_Disable_Time:slider,0,1,500", "spezialSetGet"=>"-"},
-"0x1029"=>{"Bezeichnung"=>"set Zero Current", "ReadingName"=>"set Zero Current", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"-", "setValues"=>"set_Zero_Current:noArg", "spezialSetGet"=>"-"},
-"0x1034"=>{"Bezeichnung"=>"User Current Zero (read only)", "ReadingName"=>"User Current Zero (read only)", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"User_Current_Zero:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0xED7D"=>{"Bezeichnung"=>"Aux (starter) Voltage", "ReadingName"=>"Aux (starter) Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Aux_(starter)_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x100B"=>{"Bezeichnung"=>"Relay Disable Time", "ReadingName"=>"Relay_Disable_Time", "Einheit"=>"min", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"500", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Disable_Time:noArg", "setValues"=>"Relay_Disable_Time:slider,0,1,500", "spezialSetGet"=>"-"},
+"0x1029"=>{"Bezeichnung"=>"set Zero Current", "ReadingName"=>"set_Zero_Current", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"-", "setValues"=>"set_Zero_Current:noArg", "spezialSetGet"=>"-"},
+"0x1034"=>{"Bezeichnung"=>"User Current Zero (read only)", "ReadingName"=>"User_Current_Zero_(read only)", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"User_Current_Zero:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0xED7D"=>{"Bezeichnung"=>"Aux (starter) Voltage", "ReadingName"=>"Aux_(starter)_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Aux_(starter)_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xED8D"=>{"Bezeichnung"=>"Battery_Voltage", "ReadingName"=>"Battery_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Battery_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xED8E"=>{"Bezeichnung"=>"Power", "ReadingName"=>"Power", "Einheit"=>"W", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Power:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xED8F"=>{"Bezeichnung"=>"Current", "ReadingName"=>"Current", "Einheit"=>"A", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Current:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xEDDD"=>{"Bezeichnung"=>"System_yield", "ReadingName"=>"System_yield", "Einheit"=>"kWh", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"System_yield:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xEDEC"=>{"Bezeichnung"=>"Battery_temperature", "ReadingName"=>"Battery_temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Battery_temperature:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0xEEE0"=>{"Bezeichnung"=>"Show Voltage", "ReadingName"=>"Show Voltage", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Voltage:noArg", "setValues"=>"Show_Voltage:off,on", "spezialSetGet"=>"0:1"},
-"0xEEE1"=>{"Bezeichnung"=>"Show Auxiliary Voltage", "ReadingName"=>"Show Auxiliary Voltage", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Auxiliary_Voltage:noArg", "setValues"=>"Show_Auxiliary_Voltage:off,on", "spezialSetGet"=>"0:1"},
-"0xEEE2"=>{"Bezeichnung"=>"Show Mid Voltage", "ReadingName"=>"Show Mid Voltage", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Mid_Voltage:noArg", "setValues"=>"Show_Mid_Voltage:off,on", "spezialSetGet"=>"0:1"},
-"0xEEE3"=>{"Bezeichnung"=>"Show Current", "ReadingName"=>"Show Current", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Current:noArg", "setValues"=>"Show_Current:off,on", "spezialSetGet"=>"0:1"},
-"0xEEE4"=>{"Bezeichnung"=>"Show Cunsumed AH", "ReadingName"=>"Show Cunsumed AH", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Cunsumed_AH:noArg", "setValues"=>"Show_Cunsumed_AH:off,on", "spezialSetGet"=>"0:1"},
-"0xEEE5"=>{"Bezeichnung"=>"Show SOC", "ReadingName"=>"Show SOC", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_SOC:noArg", "setValues"=>"Show_SOC:off,on", "spezialSetGet"=>"0:1"},
-"0xEEE6"=>{"Bezeichnung"=>"Show TTG", "ReadingName"=>"Show TTG", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_TTG:noArg", "setValues"=>"Show_TTG:off,on", "spezialSetGet"=>"0:1"},
-"0xEEE7"=>{"Bezeichnung"=>"Show Temperature", "ReadingName"=>"Show Temperature", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Temperature:noArg", "setValues"=>"Show_Temperature:off,on", "spezialSetGet"=>"0:1"},
-"0xEEE8"=>{"Bezeichnung"=>"Show Power", "ReadingName"=>"Show Power", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Power:noArg", "setValues"=>"Show_Power:off,on", "spezialSetGet"=>"0:1"},
-"0xEEF4"=>{"Bezeichnung"=>"Temperature coefficient", "ReadingName"=>"Temperature coefficient", "Einheit"=>"prozCAP_degC", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"20", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Temperature_coefficient:noArg", "setValues"=>"Temperature_coefficient:slider,0,0.1,20", "spezialSetGet"=>"-"},
-"0xEEF5"=>{"Bezeichnung"=>"Scroll Speed", "ReadingName"=>"Scroll Speed", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"1", "max"=>"5", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Scroll_Speed:noArg", "setValues"=>"Scroll_Speed:slider,0,1,5", "spezialSetGet"=>"-"},
-"0xEEF6"=>{"Bezeichnung"=>"Setup Lock", "ReadingName"=>"Setup Lock", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Setup_Lock:noArg", "setValues"=>"Setup_Lock:off,on", "spezialSetGet"=>"0:1"},
-"0xEEF7"=>{"Bezeichnung"=>"Temperature Unit", "ReadingName"=>"Temperature Unit", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Temperature_Unit:noArg", "setValues"=>"Temperature_Unit:Celsius,Fahrenheit", "spezialSetGet"=>"0:1"},
-"0xEEF8"=>{"Bezeichnung"=>"Auxiliary Input", "ReadingName"=>"Auxiliary Input", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"2", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Auxiliary_Input:noArg", "setValues"=>"Auxiliary_Input:start,mid,temp", "spezialSetGet"=>"0:1"},
-"0xEEF9"=>{"Bezeichnung"=>"SW Version", "ReadingName"=>"SW Version", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"SW_Version:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0xEEFA"=>{"Bezeichnung"=>"Shunt Volts", "ReadingName"=>"Shunt Volts", "Einheit"=>"V", "Skalierung"=>"0.001", "Payloadnibbles"=>"4", "min"=>"0.001", "max"=>"0.1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Shunt_Volts:noArg", "setValues"=>"Shunt_Volts", "spezialSetGet"=>"-"},
-"0xEEFB"=>{"Bezeichnung"=>"Shunt Amps", "ReadingName"=>"Shunt Amps", "Einheit"=>"A", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"9999", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Shunt_Amps:noArg", "setValues"=>"Shunt_Amps", "spezialSetGet"=>"-"},
-"0xEEFC"=>{"Bezeichnung"=>"Alarm Buzzer", "ReadingName"=>"Alarm Buzzer", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Buzzer:noArg", "setValues"=>"Alarm_Buzzer:off,on", "spezialSetGet"=>"0:1"},
-"0xEEFE"=>{"Bezeichnung"=>"Backlight Intensity", "ReadingName"=>"Backlight Intensity", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"9", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Backlight_Intensity:noArg", "setValues"=>"Backlight_Intensity:0,1,2,3,4,5,6,7,8,9", "spezialSetGet"=>"-"},
+"0xEEE0"=>{"Bezeichnung"=>"Show Voltage", "ReadingName"=>"Show_Voltage", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Voltage:noArg", "setValues"=>"Show_Voltage:off,on", "spezialSetGet"=>"0:1"},
+"0xEEE1"=>{"Bezeichnung"=>"Show Auxiliary Voltage", "ReadingName"=>"Show_Auxiliary_Voltage", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Auxiliary_Voltage:noArg", "setValues"=>"Show_Auxiliary_Voltage:off,on", "spezialSetGet"=>"0:1"},
+"0xEEE2"=>{"Bezeichnung"=>"Show Mid Voltage", "ReadingName"=>"Show_Mid_Voltage", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Mid_Voltage:noArg", "setValues"=>"Show_Mid_Voltage:off,on", "spezialSetGet"=>"0:1"},
+"0xEEE3"=>{"Bezeichnung"=>"Show Current", "ReadingName"=>"Show_Current", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Current:noArg", "setValues"=>"Show_Current:off,on", "spezialSetGet"=>"0:1"},
+"0xEEE4"=>{"Bezeichnung"=>"Show Cunsumed AH", "ReadingName"=>"Show_Cunsumed_AH", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Cunsumed_AH:noArg", "setValues"=>"Show_Cunsumed_AH:off,on", "spezialSetGet"=>"0:1"},
+"0xEEE5"=>{"Bezeichnung"=>"Show SOC", "ReadingName"=>"Show_SOC", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_SOC:noArg", "setValues"=>"Show_SOC:off,on", "spezialSetGet"=>"0:1"},
+"0xEEE6"=>{"Bezeichnung"=>"Show TTG", "ReadingName"=>"Show_TTG", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_TTG:noArg", "setValues"=>"Show_TTG:off,on", "spezialSetGet"=>"0:1"},
+"0xEEE7"=>{"Bezeichnung"=>"Show Temperature", "ReadingName"=>"Show_Temperature", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Temperature:noArg", "setValues"=>"Show_Temperature:off,on", "spezialSetGet"=>"0:1"},
+"0xEEE8"=>{"Bezeichnung"=>"Show Power", "ReadingName"=>"Show_Power", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Power:noArg", "setValues"=>"Show_Power:off,on", "spezialSetGet"=>"0:1"},
+"0xEEF4"=>{"Bezeichnung"=>"Temperature coefficient", "ReadingName"=>"Temperature_coefficient", "Einheit"=>"prozCAP_degC", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"20", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Temperature_coefficient:noArg", "setValues"=>"Temperature_coefficient:slider,0,0.1,20", "spezialSetGet"=>"-"},
+"0xEEF5"=>{"Bezeichnung"=>"Scroll Speed", "ReadingName"=>"Scroll_Speed", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"1", "max"=>"5", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Scroll_Speed:noArg", "setValues"=>"Scroll_Speed:slider,0,1,5", "spezialSetGet"=>"-"},
+"0xEEF6"=>{"Bezeichnung"=>"Setup Lock", "ReadingName"=>"Setup_Lock", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Setup_Lock:noArg", "setValues"=>"Setup_Lock:off,on", "spezialSetGet"=>"0:1"},
+"0xEEF7"=>{"Bezeichnung"=>"Temperature Unit", "ReadingName"=>"Temperature_Unit", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Temperature_Unit:noArg", "setValues"=>"Temperature_Unit:Celsius,Fahrenheit", "spezialSetGet"=>"0:1"},
+"0xEEF8"=>{"Bezeichnung"=>"Auxiliary Input", "ReadingName"=>"Auxiliary_Input", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"2", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Auxiliary_Input:noArg", "setValues"=>"Auxiliary_Input:start,mid,temp", "spezialSetGet"=>"0:1"},
+"0xEEF9"=>{"Bezeichnung"=>"SW Version", "ReadingName"=>"SW_Version", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"SW_Version:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0xEEFA"=>{"Bezeichnung"=>"Shunt Volts", "ReadingName"=>"Shunt_Volts", "Einheit"=>"V", "Skalierung"=>"0.001", "Payloadnibbles"=>"4", "min"=>"0.001", "max"=>"0.1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Shunt_Volts:noArg", "setValues"=>"Shunt_Volts", "spezialSetGet"=>"-"},
+"0xEEFB"=>{"Bezeichnung"=>"Shunt Amps", "ReadingName"=>"Shunt_Amps", "Einheit"=>"A", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"9999", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Shunt_Amps:noArg", "setValues"=>"Shunt_Amps", "spezialSetGet"=>"-"},
+"0xEEFC"=>{"Bezeichnung"=>"Alarm Buzzer", "ReadingName"=>"Alarm_Buzzer", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Buzzer:noArg", "setValues"=>"Alarm_Buzzer:off,on", "spezialSetGet"=>"0:1"},
+"0xEEFE"=>{"Bezeichnung"=>"Backlight Intensity", "ReadingName"=>"Backlight_Intensity", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"9", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Backlight_Intensity:noArg", "setValues"=>"Backlight_Intensity:0,1,2,3,4,5,6,7,8,9", "spezialSetGet"=>"-"},
 "0xEEFF"=>{"Bezeichnung"=>"Consumed_Ah", "ReadingName"=>"Consumed_Ah", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Consumed_Ah:noArg", "setValues"=>"-", "spezialSetGet"=>"-"});
 
 
@@ -308,7 +311,7 @@ my %TextMapping = (
 "IL"=>{"BMV"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}, "MPPT"=>{"Register"=>"0xEDAD","scale"=>0.001,"ReName"=>"-"}, "Inverter"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}},
 "IPV"=>{"BMV"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}, "MPPT"=>{"Register"=>"0xEDBD","scale"=>0.001,"ReName"=>"-"}, "Inverter"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}},
 "LOAD"=>{"BMV"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}, "MPPT"=>{"Register"=>"0xEDA8","scale"=>0,"ReName"=>"-"}, "Inverter"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}},
-"SOC"=>{"BMV"=>{"Register"=>"0x0FFF","scale"=>1,"ReName"=>"-"}, "MPPT"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}, "Inverter"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}},
+"SOC"=>{"BMV"=>{"Register"=>"0x0FFF","scale"=>0.1,"ReName"=>"-"}, "MPPT"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}, "Inverter"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}},
 "T"=>{"BMV"=>{"Register"=>"0xEDEC","scale"=>1,"ReName"=>"-"}, "MPPT"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}, "Inverter"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}},
 "TTG"=>{"BMV"=>{"Register"=>"0x0FFE","scale"=>1,"ReName"=>"-"}, "MPPT"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}, "Inverter"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}},
 "CE"=>{"BMV"=>{"Register"=>"0xEEFF","scale"=>0.001,"ReName"=>"-"}, "MPPT"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}, "Inverter"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}},
@@ -532,7 +535,7 @@ sub VEDirect_Initialize($)
   $hash->{SetFn}      = "VEDirect_Set";
   $hash->{GetFn}      = "VEDirect_Get"; 
   $hash->{ShutdownFn} = "VEDirect_Shutdown";
-  $hash->{AttrList}   = "do_not_notify:1,0 disable:0,1 disabledForIntervals IgnoreChecksum:1,0 LogHistoryToFile".$readingFnAttributes;
+  $hash->{AttrList}   = "do_not_notify:1,0 disable:0,1 disabledForIntervals IgnoreChecksum:1,0 LogHistoryToFile ".$readingFnAttributes;
   $hash->{helper}{BUFFER} = "";
 } #UpdateTime_s:2,3,4,5,6,7,8,9,10,15,20,25,30  
 
@@ -617,8 +620,8 @@ sub VEDirect_Attr($$$$)
 {
   my ( $cmd, $name, $attrName, $attrValue ) = @_;
   my $hash = $defs{$name};  
-  # $cmd  - Vorgangsart - kann die Werte "del" (löschen) oder "set" (setzen) annehmen
-  # $name - Gerätename
+  # $cmd  - Vorgangsart - kann die Werte "del" (l?schen) oder "set" (setzen) annehmen
+  # $name - Ger?tename
   # $attrName/$attrValue sind Attribut-Name und Attribut-Wert
     
   if ($cmd eq "set") 
@@ -707,8 +710,8 @@ sub VEDirect_Set($$@)
         if ( $args[0] =~ /^[0-9,.]+.+/ ) 
         {
           $args[0] =~ /^[0-9,.]+$/;
-          Log3 $name, 5, "VEDirect ($name) - Set prüfe $args[0] auf Min- und Max-Werte";
-          ##Auf min und max-Werte prüfen
+          Log3 $name, 5, "VEDirect ($name) - Set pr?fe $args[0] auf Min- und Max-Werte";
+          ##Auf min und max-Werte pr?fen
           if ($Register{ $type }->{ $reg }->{'min'} ne "-" && $Register{ $type }->{ $reg }->{'min'} ne "")
           {
              $args[0] = $Register{ $type }->{ $reg }->{'min'} if ($args[0] < $Register{ $type }->{ $reg }->{'min'});  
@@ -730,7 +733,7 @@ sub VEDirect_Set($$@)
         }
         else 
         {
-          ##wenn args[0] keine nummer enthält
+          ##wenn args[0] keine nummer enth?lt
           my@setItems = split(",",substr($Register{ $type }->{ $reg }->{'setValues'}, index($Register{ $type }->{ $reg }->{'setValues'},":")));
           $setItems[0] = substr($setItems[0],1);
           my @setValues = split(':',$Register{ $type }->{ $reg }->{'spezialSetGet'});
@@ -860,7 +863,31 @@ sub VEDirect_Get($$@)
         {
           $command .= VEDirect_ChecksumHEX(0x55,$command); 
           Log3 $name, 4, "VEDirect ($name) - get command $cmd $debugarg - sending --> $command";
-          DevIo_SimpleWrite($hash, $command, 2, 1) ;
+          DevIo_SimpleWrite($hash, $command, 2, 1) ;  
+          ##++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+          my $buf = "";
+          
+          ##Log3 $name, 5, "VEDirect ($name) - Read Received DATA --> /n".$buf;
+            #**********************************************************************************************************
+            #pruefen, ob Hex-Nachrichten enthalten sind
+           my $cntWhile = 0;    
+           while (index($buf,":") != -1 && $cntWhile <= 50)         
+            { 
+              ##return "" if ( !defined($buf) ); #keine Daten im Buffer enthalten -> abbruch 
+              $buf = DevIo_SimpleRead($hash) ;
+              $buf = $hash->{helper}{BUFFER}.$buf ;
+              $cntWhile +=1;
+              my $hexMsg = "" ;
+              if($buf =~ /(\:[0-9A-F][0-9A-F]++\n)/)
+              {
+               $hexMsg = $1;
+               $buf =~ s/$hexMsg//;  #hex-Nachricht entfernen
+               Log3 $name, 5, "VEDirect ($name) - Read: cutting Hex-MSG: >$hexMsg<";
+               return VEDirect_ParseHEX($hash, $hexMsg);  #ParseHex-funktion aufrufen (direkte Auswerung der Daten) 
+               last;
+              } 
+            } 
+          
         }
       }
       else
@@ -875,7 +902,7 @@ sub VEDirect_Get($$@)
 
 sub VEDirect_PollShort($)
 {
-    ##shortpoll -> regelmäßig einen Ping senden das senden von HEX-Nachrichten der Geräte aufrecht zu halten
+    ##shortpoll -> regelm??ig einen Ping senden das senden von HEX-Nachrichten der Ger?te aufrecht zu halten
     my $hash = shift;
     RemoveInternalTimer($hash);    #delete all old timer
     my $name = $hash->{NAME};
@@ -889,9 +916,9 @@ sub VEDirect_PollShort($)
 ##################################################################################################################################################
 # Read-Funktion
 # 1. Daten aus dem Buffer holen
-# 2. Daten von Seriell einlesen und an buffer anhängen 
-# 3. Prüfen, on Hex-Nachrichten enthalten sind
-# 4. Prüfen ob eini kompletter block enthalten ist 
+# 2. Daten von Seriell einlesen und an buffer anh?ngen 
+# 3. Pr?fen, on Hex-Nachrichten enthalten sind
+# 4. Pr?fen ob eini kompletter block enthalten ist 
 # nein --> Daten in Buffer schreiben
 # ja -->  auswerten
 ##################################################################################################################################################
@@ -931,7 +958,7 @@ sub VEDirect_Read($$$)
 #     Log3 $name, 3, "VEDirect ($name) - Read: Updatetime: $hash->{helper}{updatetime}";
 #     if($hash->{helper}{updatetime} ne "-")
 #     {
-#       #prüfen, ob die aktuelle zeit größer als die mindestzeit ist
+#       #pr?fen, ob die aktuelle zeit gr??er als die mindestzeit ist
 #       #$hash->{helper}{updatetime} = gettimeofday() + $attr{$name}{"UpdateTime_s"} if(gettimeofday() < ($hash->{helper}{updatetime} - $attr{$name}{"UpdateTime_s"})); 
 #       my @tod = gettimeofday();
 #       Log3 $name, 3, "VEDirect ($name) - Read: Updatetime: $hash->{helper}{updatetime} --> timeofday: $tod[0]";
@@ -955,7 +982,7 @@ sub VEDirect_Read($$$)
 #   }
    
    
-   #Prüfen auf Text-Felder und Checksum
+   #Pr?fen auf Text-Felder und Checksum
 
    Log3 $name, 4, "VEDirect ($name) - Read: Actual Buffer: >$buf<";
    my ($start1, $start2);
@@ -1207,7 +1234,7 @@ sub VEDirect_ParseHEX($$)
 
 
  Log3 $name, 4, "VEDirect ($name) - ParseHex received $msg";       #:AD5ED009D05E7
- ##auf gültige Checksumme prüfen
+ ##auf g?ltige Checksumme pr?fen
  if(substr($msg,0,2) eq ":A")
   {return undef if(VEDirect_ChecksumHEX(0x55,$msg) eq 0xD);}
  else
@@ -1216,7 +1243,7 @@ sub VEDirect_ParseHEX($$)
  Log3 $name, 4, "VEDirect ($name) - ParseHex Checksum ok in $msg";   
  
  ##-----------------------------------------------------------------
- ##gültige Checksumm empfangen - Auswerten
+ ##g?ltige Checksumm empfangen - Auswerten
  my $response = substr($msg,1,1);
  my $registerNummer;
  my $flags = substr($msg,6,2);
@@ -1364,16 +1391,20 @@ sub VEDirect_ParseHEX($$)
                     }
                   }
                 }
+              else
+                {
+                    
+                }
               if ($Register{ $type }->{ $id }->{'Einheit'} eq "-")
                 {
                   readingsSingleUpdate($hash, $Register{ $type }->{ $id }->{'ReadingName'}, $payload, 1);
-                  #Log3 $name, 5, "VEDirect ($name) - ParseHEX: Setting Reading $Register{ $type }->{ $id }->{'ReadingName'} ($id) to $payload"; 
+                  Log3 $name, 5, "VEDirect ($name) - ParseHEX: Setting Reading".$Register{ $type }->{ $id }->{'ReadingName'}."($id) to $payload.";## ".$Register{ $type }->{ $id }->{'Einheit'}";  
                   return $payload;        
                 }
               else
                 {
                   readingsSingleUpdate($hash, $Register{ $type }->{ $id }->{'ReadingName'}, $payload." ".$Register{ $type }->{ $id }->{'Einheit'}, 1); 
-                  #Log3 $name, 5, "VEDirect ($name) - ParseHEX: Setting Reading $Register{ $type }->{ $id }->{'ReadingName'} ($id) to $payload." ".$Register{ $type }->{ $id }->{'Einheit'}"; 
+                  Log3 $name, 5, "VEDirect ($name) - ParseHEX: Setting Reading".$Register{ $type }->{ $id }->{'ReadingName'}."($id) to $payload.";## ".$Register{ $type }->{ $id }->{'Einheit'}"; 
                   return $payload." ".$Register{ $type }->{ $id }->{'Einheit'};
                 }
            }
@@ -1611,7 +1642,7 @@ sub VEDirect_Shutdown($)
 {
   my ($hash) = @_;
 
-  # Verbindung schließen
+  # Verbindung schlie?en
   DevIo_CloseDev($hash);
   return undef;
 }   
@@ -1620,7 +1651,7 @@ sub VEDirect_Shutdown($)
 ##################################################################################################################################################
 sub VEDirect_LogHistory($)
 {
-    ##Log History Data to File -> regelmäßig einen Ping senden das senden von HEX-Nachrichten der Geräte aufrecht zu halten
+    ##Log History Data to File -> regelm??ig einen Ping senden das senden von HEX-Nachrichten der Ger?te aufrecht zu halten
     my $hash = shift;
     RemoveInternalTimer($hash);    #delete all old timer
     my $name = $hash->{NAME};
@@ -1660,13 +1691,9 @@ sub VEDirect_LogHistory($)
 # Beginn der Commandref
 
 =pod
-=item device
-=item summary VEDirect Protokoll Parser - Communication with Victron battery monitoring devices (BMV), solar chargers and inverters
-=item summary_DE VEDirect Protokoll Parser - Kommunikation mit Victron Batteriemonitoren (BMV), Solarladereglern und Invertern
+=begin html       
 
-=begin html          
-
- <a name="VEDirect Protokoll Parser"></a>
+<a name="VEDirect"></a>
 <h3>VEDirect</h3>
 <ul>
   <p>Verbindet FHEM mit einem Victron Ger?t (MPPT, BMV oder Inverter)<br>
@@ -1700,40 +1727,4 @@ sub VEDirect_LogHistory($)
 </ul>
 =end html
 
-=begin html_DE
- <a name="VEDirect Protokoll Parser"></a>
-<h3>VEDirect</h3>
-<ul>
-  <p>Verbindet FHEM mit einem Victron Ger?t (MPPT, BMV oder Inverter)<br>
-  mittels einer seriellen Verbindung. Set-Funktionen sind derzeit nicht implementiet</p><br><br>
-  <p><b>Define</b></p>
-  <ul>
-    <p><code>define &lt;name&gt; VEDirect &lt;serial device&gt; Devivetype[BMV|MPPT|Inverter]</code></p>
-    <p>Specifies the VE.Direct device.</p>
-  </ul>
-  <a name="VEDirectsets"></a>
-  <p><b>Set</b></p>
-  <ul>
-    <li>
-      <p>Set-Values tbd</p>
-    </li>
-  </ul>
-  <a name="VEDirectattr"></a>
-  <p><b>Attributes</b></p>
-  <ul> 
-    <li>
-      <p><code>att &lt;name&gt; Raw_Readings</code><br/>
-         "On": Es werden zus?tzliche Readings ausgegeben (Rohdaten vom Batteriemonitor)<br/>
-         "Off": (Standartwert) Es wird nur Klartext ausgegeben </p>    
-    </li> 
-        <li>
-      <p><code>att &lt;name&gt; berechneteWerte</code><br/>
-         "On": Es werden zus?tzliche Readings aus den Rohdaten berechnet: Leistung, Wh_geladen, Wh_entnommen<br/>
-         "Off":zus?tzliche Readings werden nicht berechnet (aber ggf. vom Device zur Verf?gung gestellt </p>    
-    </li>
-  </ul>
-</ul>
-=end html
-
-# Ende der Commandref
 =cut
