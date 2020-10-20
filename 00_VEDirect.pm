@@ -1,18 +1,22 @@
-#Version 8.81 Autor: Askie (31.08.2020)
-#########################################################################
 # fhem Modul fuer Victron VE.Direct Hex-Protokoll
+#     define SmartShunt VEDirect /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AL0404CO-if00-port0@19200 BMV
+#
+#Version 10 (16.10.2020)
+#Autor: Askie 
 #  
-# general rebuild
-# ToDo: in den Specialsetget-Werten die "bitwise" werte einpflegen
-
 package main;
 
-use strict;                          #
-##use warnings;                        #
-use Time::HiRes qw(gettimeofday);    #
+use strict;
+use warnings;
+use Time::HiRes qw(gettimeofday);
+use File::Spec::Functions;
 use Scalar::Util qw(looks_like_number);
-use DevIo;
-use GPUtils qw(:all);
+use DevIo; # load DevIo.pm if not already loaded
+
+sub VEDirect_GetBMV ($$@);
+sub VEDirect_GetMPPT($$@);
+sub VEDirect_GetInverter($$@);
+
 
 my %startBlock = (
 "BMV"=>"\r\nH1|\r\nPID",
@@ -21,102 +25,507 @@ my %startBlock = (
 );
 
 
+my %Text = ("V"=>{"ReadingName"=>"Main_or_channel_1_battery_voltage","Unit"=>"V","Scale"=>"0.001"},
+            "V2"=>{"ReadingName"=>"Channel_2_battery_voltage","Unit"=>"V","Scale"=>"0.001"},
+            "V3"=>{"ReadingName"=>"Channel_3_battery_voltage","Unit"=>"V","Scale"=>"0.001"},
+            "VS"=>{"ReadingName"=>"Auxiliary_starter_voltage","Unit"=>"V","Scale"=>"0.001"},
+            "VM"=>{"ReadingName"=>"Mid_point_voltage_of_the_battery_bank","Unit"=>"V","Scale"=>"0.001"},
+            "DM"=>{"ReadingName"=>"Mid_point_deviation_of_the_battery_bank","Unit"=>"‰","Scale"=>"1"},
+            "VPV"=>{"ReadingName"=>"Panel_voltage","Unit"=>"V","Scale"=>"0.001"},
+            "PPV"=>{"ReadingName"=>"Panel_power","Unit"=>"W","Scale"=>"1"},
+            "I"=>{"ReadingName"=>"Main_or_channel_1_battery_current","Unit"=>"A","Scale"=>"0.001"},
+            "I2"=>{"ReadingName"=>"Channel_2_battery_current","Unit"=>"A","Scale"=>"0.001"},
+            "I3"=>{"ReadingName"=>"Channel_3_battery_current","Unit"=>"A","Scale"=>"0.001"},
+            "IL"=>{"ReadingName"=>"Load_current","Unit"=>"A","Scale"=>"0.001"},
+            "LOAD"=>{"ReadingName"=>"Load_output_state","Unit"=>"-","Scale"=>"-"},
+            "T"=>{"ReadingName"=>"Battery_temperature","Unit"=>"°C","Scale"=>"1"},
+            "P"=>{"ReadingName"=>"Instantaneous_power","Unit"=>"W","Scale"=>"1"},
+            "CE"=>{"ReadingName"=>"Consumed_Amp_Hours","Unit"=>"Ah","Scale"=>"0.001"},
+            "SOC"=>{"ReadingName"=>"State_of_charge","Unit"=>"%","Scale"=>"0.1"},
+            "TTG"=>{"ReadingName"=>"Time_to_go","Unit"=>"Minutes","Scale"=>"1"},
+            "Alarm"=>{"ReadingName"=>"Alarm_condition_active","Unit"=>"ACA","Scale"=>"-"},
+            "Relay"=>{"ReadingName"=>"Relay_state","Unit"=>"RS","Scale"=>"-"},
+            "AR"=>{"ReadingName"=>"Alarm_reason","Unit"=>"AR","Scale"=>"-"},
+            "OR"=>{"ReadingName"=>"Off_reason","Unit"=>"OR","Scale"=>"-"},
+            "H1"=>{"ReadingName"=>"Depth_of_the_deepest_discharge","Unit"=>"Ah","Scale"=>"0.001"},
+            "H2"=>{"ReadingName"=>"Depth_of_the_last_discharge","Unit"=>"Ah","Scale"=>"0.001"},
+            "H3"=>{"ReadingName"=>"Depth_of_the_average_discharge","Unit"=>"Ah","Scale"=>"0.001"},
+            "H4"=>{"ReadingName"=>"Number_of_charge_cycles","Unit"=>"-","Scale"=>"1"},
+            "H5"=>{"ReadingName"=>"Number_of_full_discharges","Unit"=>"-","Scale"=>"1"},
+            "H6"=>{"ReadingName"=>"Cumulative_Amp_Hours_drawn","Unit"=>"Ah","Scale"=>"0.001"},
+            "H7"=>{"ReadingName"=>"Minimum_main_battery_voltage","Unit"=>"V","Scale"=>"0.001"},
+            "H8"=>{"ReadingName"=>"Maximum_main_battery_voltage","Unit"=>"V","Scale"=>"0.001"},
+            "H9"=>{"ReadingName"=>"Number_of_seconds_since_last_full_charge","Unit"=>"s","Scale"=>"1"},
+            "H10"=>{"ReadingName"=>"Number_of_automatic_synchronizations","Unit"=>"-","Scale"=>"1"},
+            "H11"=>{"ReadingName"=>"Number_of_low_main_voltage_alarms","Unit"=>"-","Scale"=>"1"},
+            "H12"=>{"ReadingName"=>"Number_of_high_main_voltage_alarms","Unit"=>"-","Scale"=>"1"},
+            "H13"=>{"ReadingName"=>"Number_of_low_auxiliary_voltage_alarms","Unit"=>"-","Scale"=>"1"},
+            "H14"=>{"ReadingName"=>"Number_of_high_auxiliary_voltage_alarms","Unit"=>"-","Scale"=>"1"},
+            "H15"=>{"ReadingName"=>"Minimum_auxiliary_battery_voltage","Unit"=>"V","Scale"=>"0.001"},
+            "H16"=>{"ReadingName"=>"Maximum_auxiliary_battery_voltage","Unit"=>"V","Scale"=>"0.001"},
+            "H17"=>{"ReadingName"=>"Amount_of_discharged_energy","Unit"=>"kWh","Scale"=>"0.01"},
+            "H18"=>{"ReadingName"=>"Amount_of_charged_energy","Unit"=>"kWh","Scale"=>"100"},
+            "H19"=>{"ReadingName"=>"Yield_total_user_resettable_counter","Unit"=>"kWh","Scale"=>"0.01"},
+            "H20"=>{"ReadingName"=>"Yield_today","Unit"=>"kWh","Scale"=>"0.01"},
+            "H21"=>{"ReadingName"=>"Maximum_power_today","Unit"=>"W","Scale"=>"1"},
+            "H22"=>{"ReadingName"=>"Yield_yesterday","Unit"=>"-","Scale"=>"1"},
+            "H23"=>{"ReadingName"=>"Maximum_power_yesterday","Unit"=>"W","Scale"=>"1"},
+            "ERR"=>{"ReadingName"=>"Error_code","Unit"=>"ERR","Scale"=>"1"},
+            "CS"=>{"ReadingName"=>"State_of_operation","Unit"=>"-","Scale"=>"1"},
+            "BMV"=>{"ReadingName"=>"Model_description","Unit"=>"-","Scale"=>"1"},
+            "FW"=>{"ReadingName"=>"Firmware_version_16_bit","Unit"=>"-","Scale"=>"1"},
+            "FWE"=>{"ReadingName"=>"Firmware_version_24_bit","Unit"=>"-","Scale"=>"1"},
+            "PID"=>{"ReadingName"=>"Product_ID","Unit"=>"-","Scale"=>"1"},
+            "SER#"=>{"ReadingName"=>"Serial_number","Unit"=>"-","Scale"=>"1"},
+            "HSDS"=>{"ReadingName"=>"Day_sequence_number","Unit"=>"-","Scale"=>"1"},
+            "MODE"=>{"ReadingName"=>"Device_mode","Unit"=>"MODE","Scale"=>"1"},
+            "AC_OUT_V"=>{"ReadingName"=>"AC_output_voltage","Unit"=>"V","Scale"=>"1"},
+            "AC_OUT_I"=>{"ReadingName"=>"AC_output_current","Unit"=>"A","Scale"=>"1"},
+            "AC_OUT_S"=>{"ReadingName"=>"AC_output_apparent_power","Unit"=>"VA","Scale"=>"1"},
+            "WARN"=>{"ReadingName"=>"Warning_reason","Unit"=>"WR","Scale"=>"1"},
+            "MPPT"=>{"ReadingName"=>"Tracker_operation_mode","Unit"=>"MPPT","Scale"=>"1"})    ;
+
+my %PrID =   ("600S"=>"BMV-600S ",
+              "712 Smart"=>"BMV-712 Smart ",
+              "0x203"=>"BMV-700 ", 
+              "0x204"=>"BMV-702 ", 
+              "0x205"=>"BMV-700H ",
+              "0xA381"=>"BMV-712 Smart", 
+              "0x0300"=>"BlueSolar MPPT 70|15* ", 
+              "0xA040"=>"BlueSolar MPPT 75|50* ", 
+              "0xA041"=>"BlueSolar MPPT 150|35* ", 
+              "0xA042"=>"BlueSolar MPPT 75|15 ", 
+              "0xA043"=>"BlueSolar MPPT 100|15 ", 
+              "0xA044"=>"BlueSolar MPPT 100|30* ", 
+              "0xA045"=>"BlueSolar MPPT 100|50* ", 
+              "0xA046"=>"BlueSolar MPPT 150|70 ", 
+              "0xA047"=>"BlueSolar MPPT 150|100 ", 
+              "0xA049"=>"BlueSolar MPPT 100|50 rev2 ", 
+              "0xA04A"=>"BlueSolar MPPT 100|30 rev2 ", 
+              "0xA04B"=>"BlueSolar MPPT 150|35 rev2 ", 
+              "0xA04C"=>"BlueSolar MPPT 75|10 ", 
+              "0xA04D"=>"BlueSolar MPPT 150|45 ", 
+              "0xA04E"=>"BlueSolar MPPT 150|60 ", 
+              "0xA04F"=>"BlueSolar MPPT 150|85 ", 
+              "0xA050"=>"SmartSolar MPPT 250|100 ", 
+              "0xA051"=>"SmartSolar MPPT 150|100* ", 
+              "0xA052"=>"SmartSolar MPPT 150|85* ", 
+              "0xA053"=>"SmartSolar MPPT 75|15 ", 
+              "0xA054"=>"SmartSolar MPPT 75|10 ", 
+              "0xA055"=>"SmartSolar MPPT 100|15 ", 
+              "0xA056"=>"SmartSolar MPPT 100|30 ", 
+              "0xA057"=>"SmartSolar MPPT 100|50 ", 
+              "0xA058"=>"SmartSolar MPPT 150|35 ", 
+              "0xA059"=>"SmartSolar MPPT 150|100 rev2 ", 
+              "0xA05A"=>"SmartSolar MPPT 150|85 rev2 ", 
+              "0xA05B"=>"SmartSolar MPPT 250|70 ", 
+              "0xA05C"=>"SmartSolar MPPT 250|85 ", 
+              "0xA05D"=>"SmartSolar MPPT 250|60 ", 
+              "0xA05E"=>"SmartSolar MPPT 250|45 ", 
+              "0xA05F"=>"SmartSolar MPPT 100|20 ", 
+              "0xA060"=>"SmartSolar MPPT 100|20 48V ", 
+              "0xA061"=>"SmartSolar MPPT 150|45 ", 
+              "0xA062"=>"SmartSolar MPPT 150|60 ", 
+              "0xA063"=>"SmartSolar MPPT 150|70 ", 
+              "0xA064"=>"SmartSolar MPPT 250|85 rev2 ", 
+              "0xA065"=>"SmartSolar MPPT 250|100 rev2 ", 
+              "0xA201"=>"Phoenix Inverter 12V 250VA 230V* ", 
+              "0xA202"=>"Phoenix Inverter 24V 250VA 230V* ", 
+              "0xA204"=>"Phoenix Inverter 48V 250VA 230V* ", 
+              "0xA211"=>"Phoenix Inverter 12V 375VA 230V* ", 
+              "0xA212"=>"Phoenix Inverter 24V 375VA 230V* ", 
+              "0xA214"=>"Phoenix Inverter 48V 375VA 230V* ", 
+              "0xA221"=>"Phoenix Inverter 12V 500VA 230V* ", 
+              "0xA222"=>"Phoenix Inverter 24V 500VA 230V* ", 
+              "0xA224"=>"Phoenix Inverter 48V 500VA 230V* ", 
+              "0xA231"=>"Phoenix Inverter 12V 250VA 230V ", 
+              "0xA232"=>"Phoenix Inverter 24V 250VA 230V ", 
+              "0xA234"=>"Phoenix Inverter 48V 250VA 230V ", 
+              "0xA239"=>"Phoenix Inverter 12V 250VA 120V ", 
+              "0xA23A"=>"Phoenix Inverter 24V 250VA 120V ", 
+              "0xA23C"=>"Phoenix Inverter 48V 250VA 120V ", 
+              "0xA241"=>"Phoenix Inverter 12V 375VA 230V ", 
+              "0xA242"=>"Phoenix Inverter 24V 375VA 230V ", 
+              "0xA244"=>"Phoenix Inverter 48V 375VA 230V ", 
+              "0xA249"=>"Phoenix Inverter 12V 375VA 120V ", 
+              "0xA24A"=>"Phoenix Inverter 24V 375VA 120V ", 
+              "0xA24C"=>"Phoenix Inverter 48V 375VA 120V ", 
+              "0xA251"=>"Phoenix Inverter 12V 500VA 230V ", 
+              "0xA252"=>"Phoenix Inverter 24V 500VA 230V ", 
+              "0xA254"=>"Phoenix Inverter 48V 500VA 230V ", 
+              "0xA259"=>"Phoenix Inverter 12V 500VA 120V ", 
+              "0xA25A"=>"Phoenix Inverter 24V 500VA 120V ", 
+              "0xA25C"=>"Phoenix Inverter 48V 500VA 120V ", 
+              "0xA261"=>"Phoenix Inverter 12V 800VA 230V ", 
+              "0xA262"=>"Phoenix Inverter 24V 800VA 230V ", 
+              "0xA264"=>"Phoenix Inverter 48V 800VA 230V ", 
+              "0xA269"=>"Phoenix Inverter 12V 800VA 120V ", 
+              "0xA26A"=>"Phoenix Inverter 24V 800VA 120V ", 
+              "0xA26C"=>"Phoenix Inverter 48V 800VA 120V ", 
+              "0xA271"=>"Phoenix Inverter 12V 1200VA 230V ", 
+              "0xA272"=>"Phoenix Inverter 24V 1200VA 230V ", 
+              "0xA274"=>"Phoenix Inverter 48V 1200VA 230V ", 
+              "0xA279"=>"Phoenix Inverter 12V 1200VA 120V ", 
+              "0xA27A"=>"Phoenix Inverter 24V 1200VA 120V ", 
+              "0xA27C"=>"Phoenix Inverter 48V 1200VA 120V ");  
+
+#Alarm-Reason
+
+my %ARtext=   ("0"=>"--",
+               "1"=>"Low Voltage",
+               "2"=>"High Voltage",
+               "4"=>"Low SOC",
+               "8"=>"Low Starter Voltage",
+               "16"=>"High Starter Voltage",
+               "32"=>"Low Temperature",
+               "64"=>"High Temperature",
+               "128"=>"Mid Voltage",
+               "256"=>"Overload", 
+               "512"=>"DC-ripple",
+               "1024"=>"Low V AC out",
+               "2048"=>"High V AC out",
+               "4096"=>"Short Circuit",
+               "8192"=>"BMS Lockout",);
+               
+
+                 
+# ERR (Fehlercode)
+my %ERR =    ('0'=>"No error",
+              '2'=> "Battery voltage too high",
+              '17'=>"Charger temperature too high",
+              '18'=>"Charger over current",
+              '19'=>"Charger current reversed",
+              '20'=>"Bulk time limit exceeded",
+              '21'=>"Current sensor issue (sensor bias/sensor broken)",
+              '26'=>"Terminals overheated",
+              '28'=>"Converter issue",
+              '33'=>"Input voltage too high (solar panel)",
+              '34'=>"Input current too high (solar panel)",
+              '38'=>"Input shutdown (due to excessive battery voltage)",
+              '39'=>"Input shutdown (due to current flow during off mode)",
+              '65'=>"Lost communication with one of devices",
+              '66'=>"Synchronised charging device configuration issue",
+              '67'=>"BMS connection lost",
+              '68'=>"Network misconfigured",
+              '116'=>"Factory calibration data lost",
+              '117'=>"Invalid/incompatible firmware",
+              '119'=>"User settings invalid");
+
+##### Mode
+my %MODE =   ('1'=>"Charger",
+              '2'=>"Inverter",
+              '4'=>"Off",
+              '5'=>"Eco",
+              '253'=>"HIBERNATE");
+
+# CS (State of Operation) 
+my %CS =    ('0'=>"OFF",
+             '1'=>"Low Power",
+             '2'=>"Fault(off bis user reset)",
+             '3'=>"Bulk",
+             '4'=>"Absorption",
+             '5'=>"Float",
+             '6'=>"Storage",
+             '7'=>"Equalize (manual)",
+             '9'=>"Inverting",
+             '11'=>"Power supply",
+             '245'=>"Starting-up",
+             '246'=>"Repeated absorption ",
+             '247'=>"Auto equalize / Recondition",
+             '248'=>"BatterySafe",
+             '252'=>"External Control"); 
+             
+             
+my %OR =    ('0x00000000'=>"Device is active",
+             '0x00000001'=>"No input power",
+             '0x00000002'=>"Switched off(power switch)",
+             '0x00000004'=>"Switched off(device mode register)",
+             '0x00000008'=>"Remote input",
+             '0x00000010'=>"Protection active",
+             '0x00000020'=>"Paygo",
+             '0x00000040'=>"BMS",
+             '0x00000080'=>"Engine shutdown detection",
+             '0x00000100'=>"Analysing input voltage");
+
+my %MPPT =    ('0'=>"Off",
+               '1'=>"Voltage_or_current_limited",
+               '2'=>"MPP Tracker active");
+
+my %TOM =    ('0x00000000'=>"Device is active",
+              '0x00000100'=>"Analysing input voltage");
+
+my %bmv_reg = ( 'ALARM_LOW_VOLTAGE_SET'=>{"Register"=>"0x0320","Scale"=>"0,01","Unit"=>"V","SetItems"=>"ALARM_LOW_VOLTAGE_SET","GetItems"=>"ALARM_LOW_VOLTAGE_SET:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'ALARM_LOW_VOLTAGE_CLEAR'=>{"Register"=>"0x0321","Scale"=>"0,01","Unit"=>"V","SetItems"=>"ALARM_LOW_VOLTAGE_CLEAR","GetItems"=>"ALARM_LOW_VOLTAGE_CLEAR:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'AlarmHighVoltage'=>{"Register"=>"0x0322","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Alarm_High_Voltage:slider,0,0.1,95","GetItems"=>"Alarm_High_Voltage:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'AlarmHighVoltageClear'=>{"Register"=>"0x0323","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Alarm_High_Voltage_Clear:slider,0,0.1,95","GetItems"=>"Alarm_High_Voltage_Clear:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'AlarmLowStarter'=>{"Register"=>"0x0324","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Alarm_Low_Starter:slider,0,0.1,95","GetItems"=>"Alarm_Low_Starter:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'AlarmLowStarterClear'=>{"Register"=>"0x0325","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Alarm_Low_Starter_Clear:slider,0,0.1,95","GetItems"=>"Alarm_Low_Starter_Clear:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'AlarmHighStarter'=>{"Register"=>"0x0326","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Alarm_High_Starter:slider,0,0.1,95","GetItems"=>"Alarm_High_Starter:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'AlarmHighStarterClear'=>{"Register"=>"0x0327","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Alarm_High_Starter_Clear:slider,0,0.1,95","GetItems"=>"Alarm_High_Starter_Clear:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'AlarmLowSOC'=>{"Register"=>"0x0328","Scale"=>"0,1","Unit"=>"%","SetItems"=>"Alarm_Low_SOC:slider,0,0.1,95","GetItems"=>"Alarm_Low_SOC:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'AlarmLowSOCClear'=>{"Register"=>"0x0329","Scale"=>"0,1","Unit"=>"%","SetItems"=>"Alarm_Low_SOC_Clear:slider,0,0.1,95","GetItems"=>"Alarm_Low_SOC_Clear:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'AlarmLowTemperature'=>{"Register"=>"0x032A","Scale"=>"0,01","Unit"=>"K","SetItems"=>"Alarm_Low_Temperature:multiple,disabled","GetItems"=>"Alarm_Low_Temperature:noArg","SpezialSetGet"=>"0:alt","Payloadnibbles"=>"4"},
+                'AlarmLowTemperatureClear'=>{"Register"=>"0x032B","Scale"=>"0,01","Unit"=>"K","SetItems"=>"Alarm_Low_Temperature_Clear:multiple,disabled","GetItems"=>"Alarm_Low_Temperature_Clear:noArg","SpezialSetGet"=>"0:alt","Payloadnibbles"=>"4"},
+                'AlarmHighTemperature'=>{"Register"=>"0x032C","Scale"=>"0,01","Unit"=>"K","SetItems"=>"Alarm_High_Temperature:multiple,disabled","GetItems"=>"Alarm_High_Temperature:noArg","SpezialSetGet"=>"0:alt","Payloadnibbles"=>"4"},
+                'AlarmHighTemperatureClear'=>{"Register"=>"0x032D","Scale"=>"0,01","Unit"=>"K","SetItems"=>"Alarm_High_Temperature_Clear:multiple,disabled","GetItems"=>"Alarm_High_Temperature_Clear:noArg","SpezialSetGet"=>"0:alt","Payloadnibbles"=>"4"},
+                'AlarmMidVoltage'=>{"Register"=>"0x0331","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Alarm_Mid_Voltage:slider,0,0.1,99","GetItems"=>"Alarm_Mid_Voltage:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'AlarmMidVoltageClear'=>{"Register"=>"0x0332","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Alarm_Mid_Voltage_Clear:slider,0,0.1,99","GetItems"=>"Alarm_Mid_Voltage_Clear:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'RelayInvert'=>{"Register"=>"0x034D","Scale"=>"1","Unit"=>"","SetItems"=>"Relay_Invert:off,on","GetItems"=>"Relay_Invert:noArg","SpezialSetGet"=>"00:01","Payloadnibbles"=>"2"},
+                'RelayState_Control'=>{"Register"=>"0x034E","Scale"=>"1","Unit"=>"","SetItems"=>"Relay_State_Control:open,closed","GetItems"=>"Relay_State_Control:noArg","SpezialSetGet"=>"00:01","Payloadnibbles"=>"2"},
+                'RelayMode'=>{"Register"=>"0x034F","Scale"=>"1","Unit"=>"","SetItems"=>"Relay_Mode:default,chrg,rem","GetItems"=>"Relay_Mode:noArg","SpezialSetGet"=>"00:01:02","Payloadnibbles"=>"2"},
+                'Relay_battery_low_voltage_set'=>{"Register"=>"0x0350","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Relay_battery_low_voltage_set:slider,9,0.1,95","GetItems"=>"Relay_battery_low_voltage_set:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Relay_battery_low_voltage_clear'=>{"Register"=>"0x0351","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Relay_battery_low_voltage_clear:slider,9,0.1,95","GetItems"=>"Relay_battery_low_voltage_clear:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Relay_battery_high_voltage_set'=>{"Register"=>"0x0352","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Relay_battery_high_voltage_set:slider,9,0.1,95","GetItems"=>"Relay_battery_high_voltage_set:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Relay_battery_high_voltage_clear'=>{"Register"=>"0x0353","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Relay_battery_high_voltage_clear:slider,9,0.1,95","GetItems"=>"Relay_battery_high_voltage_clear:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'RelayLowStarter'=>{"Register"=>"0x0354","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Relay_Low_Starter:slider,0,0.1,95","GetItems"=>"Relay_Low_Starter:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'RelayLowStarterClear'=>{"Register"=>"0x0355","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Relay_Low_Starter_Clear:slider,0,0.1,95","GetItems"=>"Relay_Low_Starter_Clear:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'RelayHighStarter'=>{"Register"=>"0x0356","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Relay_High_Starter:slider,0,0.1,95","GetItems"=>"Relay_High_Starter:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'RelayHighStarterClear'=>{"Register"=>"0x0357","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Relay_High_Starter_Clear:slider,0,0.1,95","GetItems"=>"Relay_High_Starter_Clear:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'RelayLowTemperature'=>{"Register"=>"0x035A","Scale"=>"0,01","Unit"=>"K","SetItems"=>"Relay_Low_Temperature:multiple,disabled","GetItems"=>"Relay_Low_Temperature:noArg","SpezialSetGet"=>"0:alt","Payloadnibbles"=>"4"},
+                'RelayLowTemperatureClear'=>{"Register"=>"0x035B","Scale"=>"0,01","Unit"=>"K","SetItems"=>"Relay_Low_Temperature_Clear:multiple,disabled","GetItems"=>"Relay_Low_Temperature_Clear:noArg","SpezialSetGet"=>"0:alt","Payloadnibbles"=>"4"},
+                'RelayHighTemperature'=>{"Register"=>"0x035C","Scale"=>"0,01","Unit"=>"K","SetItems"=>"Relay_High_Temperature:multiple,disabled","GetItems"=>"Relay_High_Temperature:noArg","SpezialSetGet"=>"0:alt","Payloadnibbles"=>"4"},
+                'RelayHighTemperatureClear'=>{"Register"=>"0x035D","Scale"=>"0,01","Unit"=>"K","SetItems"=>"Relay_High_Temperature_Clear:multiple,disabled","GetItems"=>"Relay_High_Temperature_Clear:noArg","SpezialSetGet"=>"0:alt","Payloadnibbles"=>"4"},
+                'RelayMidVoltage'=>{"Register"=>"0x0361","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Relay_Mid_Voltage:slider,0,0.1,95","GetItems"=>"Relay_Mid_Voltage:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'RelayMidVoltageClear'=>{"Register"=>"0x0362","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Relay_Mid_Voltage_Clear:slider,0,0.1,95","GetItems"=>"Relay_Mid_Voltage_Clear:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'BatteryCapacity'=>{"Register"=>"0x1000","Scale"=>"1","Unit"=>"Ah","SetItems"=>"Battery_Capacity:slider,1,1,9999","GetItems"=>"Battery_Capacity:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'ChargedVoltage'=>{"Register"=>"0x1001","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Charged_Voltage","GetItems"=>"Charged_Voltage:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'TailCurrent'=>{"Register"=>"0x1002","Scale"=>"0,1","Unit"=>"%","SetItems"=>"Tail_Current:slider,0.5,0.1,10","GetItems"=>"Tail_Current:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'ChargedDetectionTime'=>{"Register"=>"0x1003","Scale"=>"","Unit"=>"min","SetItems"=>"Charged_Detection_Time:slider,1,1,50","GetItems"=>"Charged_Detection_Time:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'ChargeEfficiency'=>{"Register"=>"0x1004","Scale"=>"","Unit"=>"%","SetItems"=>"Charge_Efficiency:slider,50,1,99","GetItems"=>"Charge_Efficiency:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'PeukertCoefficient'=>{"Register"=>"0x1005","Scale"=>"0,01","Unit"=>"","SetItems"=>"Peukert_Coefficient:slider,1,0.01,1.5","GetItems"=>"Peukert_Coefficient:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'CurrentThreshold'=>{"Register"=>"0x1006","Scale"=>"0,01","Unit"=>"A","SetItems"=>"Current_Threshold:slider,0,0.01,2","GetItems"=>"Current_Threshold:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'DischargeFloorRelayLowSocSet'=>{"Register"=>"0x1008","Scale"=>"0,1","Unit"=>"%","SetItems"=>"Discharge_Floor_Relay_Low_Soc_Set:slider,0,0.1,99","GetItems"=>"Discharge_Floor_Relay_Low_Soc_Set:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'RelayLowSocClear'=>{"Register"=>"0x1009","Scale"=>"0,1","Unit"=>"%","SetItems"=>"Relay_Low_Soc_Clear:slider,0,0.1,99","GetItems"=>"Relay_Low_Soc_Clear:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Relay_minimum_enabled_time'=>{"Register"=>"0x100A","Scale"=>"","Unit"=>"min","SetItems"=>"Relay_minimum_enabled_time:slider,0,1,500","GetItems"=>"Relay_minimum_enabled_time:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'RelayDisableTime'=>{"Register"=>"0x100B","Scale"=>"","Unit"=>"min","SetItems"=>"Relay_Disable_Time:slider,0,1,500","GetItems"=>"Relay_Disable_Time:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'setZeroCurrent'=>{"Register"=>"0x1029","Scale"=>"","Unit"=>"","SetItems"=>"set_Zero_Current:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Temperaturecoefficient'=>{"Register"=>"0xEEF4","Scale"=>"0,1","Unit"=>"%CAP_°C","SetItems"=>"Temperature_coefficient:slider,0,0.1,20","GetItems"=>"Temperature_coefficient:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'SetupLock'=>{"Register"=>"0xEEF6","Scale"=>"1","Unit"=>"","SetItems"=>"Setup_Lock:off,on","GetItems"=>"Setup_Lock:noArg","SpezialSetGet"=>"00:01","Payloadnibbles"=>"2"},
+                'TemperatureUnit'=>{"Register"=>"0xEEF7","Scale"=>"1","Unit"=>"","SetItems"=>"Temperature_Unit:Celsius,Fahrenheit","GetItems"=>"Temperature_Unit:noArg","SpezialSetGet"=>"00:01","Payloadnibbles"=>"2"},
+                'AuxiliaryInput'=>{"Register"=>"0xEEF8","Scale"=>"1","Unit"=>"","SetItems"=>"Auxiliary_Input:start,mid,temp","GetItems"=>"Auxiliary_Input:noArg","SpezialSetGet"=>"00:01:02","Payloadnibbles"=>"2"},
+                'ShuntVolts'=>{"Register"=>"0xEEFA","Scale"=>"0,001","Unit"=>"V","SetItems"=>"Shunt_Volts","GetItems"=>"Shunt_Volts:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'ShuntAmps'=>{"Register"=>"0xEEFB","Scale"=>"1","Unit"=>"A","SetItems"=>"Shunt_Amps","GetItems"=>"Shunt_Amps:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'AlarmBuzzer'=>{"Register"=>"0xEEFC","Scale"=>"1","Unit"=>"","SetItems"=>"Alarm_Buzzer:off,on","GetItems"=>"Alarm_Buzzer:noArg","SpezialSetGet"=>"00:01","Payloadnibbles"=>"2"});
+
+my $bmvSets = "Restart:noArg ALARM_LOW_VOLTAGE_SET:slider,0,0.1,95 ALARM_LOW_VOLTAGE_CLEAR:slider,0,0.1,95 Alarm_High_Voltage:slider,0,0.1,95 Alarm_High_Voltage_Clear:slider,0,0.1,95 Alarm_Low_Starter:slider,0,0.1,95 ".
+             "Alarm_Low_Starter_Clear:slider,0,0.1,95 Alarm_High_Starter:slider,0,0.1,95 Alarm_High_Starter_Clear:slider,0,0.1,95 Alarm_Low_SOC:slider,0,0.1,95 Alarm_Low_SOC_Clear:slider,0,0.1,95 ".
+             "Alarm_Low_Temperature:multiple,disabled Alarm_Low_Temperature_Clear:multiple,disabled Alarm_High_Temperature:multiple,disabled Alarm_High_Temperature_Clear:multiple,disabled ".
+             "Alarm_Mid_Voltage:slider,0,0.1,99 Alarm_Mid_Voltage_Clear:slider,0,0.1,99 Relay_Invert:off,on Relay_State_Control:open,closed Relay_Mode:default,chrg,rem Relay_battery_low_voltage_set".
+             ":slider,9,0.1,95 Relay_battery_low_voltage_clear:slider,9,0.1,95 Relay_battery_high_voltage_set:slider,9,0.1,95 Relay_battery_high_voltage_clear:slider,9,0.1,95 Relay_Low_Starter:".
+             "slider,0,0.1,95 Relay_Low_Starter_Clear:slider,0,0.1,95 Relay_High_Starter:slider,0,0.1,95 Relay_High_Starter_Clear:slider,0,0.1,95 Relay_Low_Temperature:multiple,disabled ".
+             "Relay_Low_Temperature_Clear:multiple,disabled Relay_High_Temperature:multiple,disabled Relay_High_Temperature_Clear:multiple,disabled Relay_Mid_Voltage:slider,0,0.1,95 ".
+             "Relay_Mid_Voltage_Clear:slider,0,0.1,95 Battery_Capacity:multiple,disabled Charged_Voltage:slider,10,0.1,95 Tail_Current:slider,0.5,0.1,10 Charged_Detection_Time:slider,1,1,50 ".
+             "Charge_Efficiency:slider,50,1,99 Peukert_Coefficient:slider,1,0.01,1.5 Current_Threshold:slider,0,0.01,2 Discharge_Floor_Relay_Low_Soc_Set:slider,0,0.1,99 ".
+             "Relay_Low_Soc_Clear:slider,0,0.1,99 Relay_minimum_enabled_time:slider,0,1,500 Relay_Disable_Time:slider,0,1,500 set_Zero_Current:noArg Temperature_coefficient:slider,0,0.1,20 ".
+             "Setup_Lock:off,on Temperature_Unit:Celsius,Fahrenheit Auxiliary_Input:start,mid,temp Shunt_Volts Shunt_Amps Alarm_Buzzer:off,on";
+
+my $bmvGets = "ConfigAll:noArg ALARM_LOW_VOLTAGE_SET:noArg ALARM_LOW_VOLTAGE_CLEAR:noArg Alarm_High_Voltage:noArg Alarm_High_Voltage_Clear:noArg Alarm_Low_Starter:noArg Alarm_Low_Starter_Clear:noArg ".
+             "Alarm_High_Starter:noArg Alarm_High_Starter_Clear:noArg Alarm_Low_SOC:noArg Alarm_Low_SOC_Clear:noArg Alarm_Low_Temperature:noArg Alarm_Low_Temperature_Clear:noArg Alarm_High_Temperature:noArg ".
+             "Alarm_High_Temperature_Clear:noArg Alarm_Mid_Voltage:noArg Alarm_Mid_Voltage_Clear:noArg Relay_Invert:noArg Relay_State_Control:noArg Relay_Mode:noArg Relay_battery_low_voltage_set:noArg ".
+             "Relay_battery_low_voltage_clear:noArg Relay_battery_high_voltage_set:noArg Relay_battery_high_voltage_clear:noArg Relay_Low_Starter:noArg Relay_Low_Starter_Clear:noArg Relay_High_Starter:noArg ".
+             "Relay_High_Starter_Clear:noArg Relay_Low_Temperature:noArg Relay_Low_Temperature_Clear:noArg Relay_High_Temperature:noArg Relay_High_Temperature_Clear:noArg Relay_Mid_Voltage:noArg ".
+             "Relay_Mid_Voltage_Clear:noArg Battery_Capacity:noArg Charged_Voltage:noArg Tail_Current:noArg Charged_Detection_Time:noArg Charge_Efficiency:noArg ".
+             "Peukert_Coefficient:noArg Current_Threshold:noArg Discharge_Floor_Relay_Low_Soc_Set:noArg Relay_Low_Soc_Clear:noArg ".
+             "Relay_minimum_enabled_time:noArg Relay_Disable_Time:noArg Temperature_coefficient:noArg Setup_Lock:noArg Temperature_Unit:noArg Auxiliary_Input:noArg Shunt_Volts:noArg Shunt_Amps:noArg ".
+             "Alarm_Buzzer:noArg Auxiliary_Input:noArg Shunt_Volts:noArg Shunt_Amps:noArg";
+
+
+my %mppt_reg = ('Charger_mode'=>{"Register"=>"0x0200","Scale"=>"1","Unit"=>"","SetItems"=>"Charger_mode:off,on","GetItems"=>"Charger_mode:off,on,off","SpezialSetGet"=>"00:01:04","Payloadnibbles"=>"2"},
+                'Relay_battery_low_voltage_set'=>{"Register"=>"0x0350","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Relay_battery_low_voltage_set:slider,9,0.1,95","GetItems"=>"Relay_battery_low_voltage_set:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Relay_battery_low_voltage_clear'=>{"Register"=>"0x0351","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Relay_battery_low_voltage_clear:slider,9,0.1,95","GetItems"=>"Relay_battery_low_voltage_clear:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Relay_battery_high_voltage_set'=>{"Register"=>"0x0352","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Relay_battery_high_voltage_set:slider,9,0.1,95","GetItems"=>"Relay_battery_high_voltage_set:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Relay_battery_high_voltage_clear'=>{"Register"=>"0x0353","Scale"=>"0,1","Unit"=>"V","SetItems"=>"Relay_battery_high_voltage_clear:slider,9,0.1,95","GetItems"=>"Relay_battery_high_voltage_clear:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Relay_minimum_enabled_time'=>{"Register"=>"0x100A","Scale"=>"","Unit"=>"min","SetItems"=>"Relay_minimum_enabled_time:slider,0,1,500","GetItems"=>"Relay_minimum_enabled_time:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Clear_history'=>{"Register"=>"0x1030","Scale"=>"","Unit"=>"","SetItems"=>"Clear_history:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Total_history'=>{"Register"=>"0x104F","Scale"=>"","Unit"=>"","GetItems"=>"Total_history:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History_today'=>{"Register"=>"0x1050","Scale"=>"0","Unit"=>"","GetItems"=>"History_today:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-1'=>{"Register"=>"0x1051","Scale"=>"-1","Unit"=>"","GetItems"=>"History-1:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-2'=>{"Register"=>"0x1052","Scale"=>"-2","Unit"=>"","GetItems"=>"History-2:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-3'=>{"Register"=>"0x1053","Scale"=>"-3","Unit"=>"","GetItems"=>"History-3:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-4'=>{"Register"=>"0x1054","Scale"=>"-4","Unit"=>"","GetItems"=>"History-4:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-5'=>{"Register"=>"0x1055","Scale"=>"-5","Unit"=>"","GetItems"=>"History-5:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-6'=>{"Register"=>"0x1056","Scale"=>"-6","Unit"=>"","GetItems"=>"History-6:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-7'=>{"Register"=>"0x1057","Scale"=>"-7","Unit"=>"","GetItems"=>"History-7:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-8'=>{"Register"=>"0x1058","Scale"=>"-8","Unit"=>"","GetItems"=>"History-8:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-9'=>{"Register"=>"0x1059","Scale"=>"-9","Unit"=>"","GetItems"=>"History-9:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-10'=>{"Register"=>"0x105A","Scale"=>"-10","Unit"=>"","GetItems"=>"History-10:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-11'=>{"Register"=>"0x105B","Scale"=>"-11","Unit"=>"","GetItems"=>"History-11:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-12'=>{"Register"=>"0x105C","Scale"=>"-12","Unit"=>"","GetItems"=>"History-12:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-13'=>{"Register"=>"0x105D","Scale"=>"-13","Unit"=>"","GetItems"=>"History-13:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-14'=>{"Register"=>"0x105E","Scale"=>"-14","Unit"=>"","GetItems"=>"History-14:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-15'=>{"Register"=>"0x105F","Scale"=>"-15","Unit"=>"","GetItems"=>"History-15:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-16'=>{"Register"=>"0x1060","Scale"=>"-16","Unit"=>"","GetItems"=>"History-16:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-17'=>{"Register"=>"0x1061","Scale"=>"-17","Unit"=>"","GetItems"=>"History-17:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-18'=>{"Register"=>"0x1062","Scale"=>"-18","Unit"=>"","GetItems"=>"History-18:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-19'=>{"Register"=>"0x1063","Scale"=>"-19","Unit"=>"","GetItems"=>"History-19:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-20'=>{"Register"=>"0x1064","Scale"=>"-20","Unit"=>"","GetItems"=>"History-20:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-21'=>{"Register"=>"0x1065","Scale"=>"-21","Unit"=>"","GetItems"=>"History-21:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-22'=>{"Register"=>"0x1066","Scale"=>"-22","Unit"=>"","GetItems"=>"History-22:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-23'=>{"Register"=>"0x1067","Scale"=>"-23","Unit"=>"","GetItems"=>"History-23:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-24'=>{"Register"=>"0x1068","Scale"=>"-24","Unit"=>"","GetItems"=>"History-24:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-25'=>{"Register"=>"0x1069","Scale"=>"-25","Unit"=>"","GetItems"=>"History-25:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-26'=>{"Register"=>"0x106A","Scale"=>"-26","Unit"=>"","GetItems"=>"History-26:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-27'=>{"Register"=>"0x106B","Scale"=>"-27","Unit"=>"","GetItems"=>"History-27:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-28'=>{"Register"=>"0x106C","Scale"=>"-28","Unit"=>"","GetItems"=>"History-28:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-29'=>{"Register"=>"0x106D","Scale"=>"-29","Unit"=>"","GetItems"=>"History-29:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'History-30'=>{"Register"=>"0x106E","Scale"=>"-30","Unit"=>"","GetItems"=>"History-30:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"68"},
+                'Charge_voltage_set-point'=>{"Register"=>"0x2001","Scale"=>"0,01","Unit"=>"V","SetItems"=>"-","GetItems"=>"Charge_voltage_set-point:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Battery_voltage_sense'=>{"Register"=>"0x2002","Scale"=>"0,01","Unit"=>"V","SetItems"=>"-","GetItems"=>"Battery_voltage_sense:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Network_mode'=>{"Register"=>"0x200E","Scale"=>"","Unit"=>"","GetItems"=>"Network_mode:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"2"},
+                'Network_status'=>{"Register"=>"0x200F","Scale"=>"","Unit"=>"","GetItems"=>"Network_status:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"2"},
+                'Solar_activity'=>{"Register"=>"0x2030","Scale"=>"","Unit"=>"","GetItems"=>"Solar_activity:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"2"},
+                'Sunset_delay'=>{"Register"=>"0xED96","Scale"=>"1","Unit"=>"min","SetItems"=>"Sunset_delay","GetItems"=>"Sunset_delay:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Sunrise_delay'=>{"Register"=>"0xED97","Scale"=>"1","Unit"=>"min","SetItems"=>"Sunrise_delay","GetItems"=>"Sunrise_delay:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'RX_Port_operation_mode'=>{"Register"=>"0xED98","Scale"=>"1","Unit"=>"","SetItems"=>"RX_Port_operation_mode:Remote_On_off,Load_output_configuration,Load_output_on_off_remote_control_inverted,Load_output_on_off_remote_control_normal","GetItems"=>"RX_Port_operation_mode:noArg","SpezialSetGet"=>"0:1:2:3","Payloadnibbles"=>"2"},
+                'Load_switch_low_level'=>{"Register"=>"0xED9C","Scale"=>"0,01","Unit"=>"V","SetItems"=>"Load_switch_low_level","GetItems"=>"Load_switch_low_level:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Load_switch_high_level'=>{"Register"=>"0xED9D","Scale"=>"0,01","Unit"=>"V","SetItems"=>"Load_switch_high_level","GetItems"=>"Load_switch_high_level:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'TX_Port_operation_mode'=>{"Register"=>"0xED9E","Scale"=>"1","Unit"=>"","SetItems"=>"TX_Port_operation_mode:Pulse_every0_01kWh,Lighting_control_pwm_normal,Lighting_control_pwm_inverted,Virtual_load_output","GetItems"=>"TX_Port_operation_mode:noArg","SpezialSetGet"=>"0:1:2:3:4","Payloadnibbles"=>"2"},
+                'Load_output_control'=>{"Register"=>"0xEDAB","Scale"=>"1","Unit"=>"","SetItems"=>"Load_output_control:off,auto,alt1,alt2,on,user1,user2,automatic_energy_selector","GetItems"=>"Load_output_control:noArg","SpezialSetGet"=>"0:1:2:3:4:5:6:7","Payloadnibbles"=>"2"},
+                'Relay_panel_high_voltage_clear'=>{"Register"=>"0xEDB9","Scale"=>"0,01","Unit"=>"V","SetItems"=>"Relay_panel_high_voltage_clear","GetItems"=>"Relay_panel_high_voltage_clear:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Relay_panel_high_voltage_set'=>{"Register"=>"0xEDBA","Scale"=>"0,01","Unit"=>"V","SetItems"=>"Relay_panel_high_voltage_set","GetItems"=>"Relay_panel_high_voltage_set:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Relay_operation_mode'=>{"Register"=>"0xEDD9","Scale"=>"1","Unit"=>"","SetItems"=>"Relay_operation_mode:off,PV_V_high,int_temp_high,Batt_Voltage_low,equalization_active,Error_cond_present,int_temp_low,Batt_Voltage_too_high,Charger_in_float_or_storage,day_detection,load_control","GetItems"=>"Relay_operation_mode:noArg","SpezialSetGet"=>"0:1:2:3:4:5:6:7:8:9:10","Payloadnibbles"=>"2"},
+                'Charger_maximum_current'=>{"Register"=>"0xEDDF","Scale"=>"0,01","Unit"=>"A","SetItems"=>"Charger_maximum_current","GetItems"=>"Charger_maximum_current:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Battery_low_temperature_level'=>{"Register"=>"0xEDE0","Scale"=>"0,01","Unit"=>"degC","SetItems"=>"Battery_low_temperature_level","GetItems"=>"Battery_low_temperature_level:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Low_temperature_charge_current'=>{"Register"=>"0xEDE6","Scale"=>"0,1","Unit"=>"A","SetItems"=>"Low_temperature_charge_current","GetItems"=>"Low_temperature_charge_current:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Battery_temperature'=>{"Register"=>"0xEDEC","Scale"=>"0,01","Unit"=>"K","GetItems"=>"Battery_temperature:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Battery_maximum_current'=>{"Register"=>"0xEDF0","Scale"=>"0,1","Unit"=>"A","SetItems"=>"Battery_maximum_current","GetItems"=>"Battery_maximum_current:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Battery_type'=>{"Register"=>"0xEDF1","Scale"=>"1","Unit"=>"","SetItems"=>"Battery_type:TYPE_1_GEL_Victron_Long_Life_14_1V,TYPE_2_GEL_Victron_Deep_discharge_14_3V,TYPE_3_GEL_Victron_Deep_discharge_14_4V,TYPE_4_AGM_Victron_Deep_discharge_14_7V,TYPE_5_Tubular_plate_cyclic_mode_1_14_9V,TYPE_6_Tubular_plate_cyclic_mode_2_15_1V,TYPE_7_Tubular_plate_cyclic_mode_3_15_3V,TYPE_8_LiFEPO4_14_2V,User_defined","GetItems"=>"Battery_type:noArg","SpezialSetGet"=>"1:2:3:4:5:6:7:8:255","Payloadnibbles"=>"2"},
+                'Battery_temp_compensation'=>{"Register"=>"0xEDF2","Scale"=>"0,01","Unit"=>"mV_K","SetItems"=>"Battery_temp_compensation","GetItems"=>"Battery_temp_compensation:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Battery_equalization_voltage'=>{"Register"=>"0xEDF4","Scale"=>"0,01","Unit"=>"V","SetItems"=>"Battery_equalization_voltage","GetItems"=>"Battery_equalization_voltage:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Battery_float_voltage'=>{"Register"=>"0xEDF6","Scale"=>"0,01","Unit"=>"V","SetItems"=>"Battery_float_voltage","GetItems"=>"Battery_float_voltage:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Battery_absorption_voltage'=>{"Register"=>"0xEDF7","Scale"=>"0,01","Unit"=>"V","SetItems"=>"Battery_absorption_voltage","GetItems"=>"Battery_absorption_voltage:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'Automatic_equalization_mode'=>{"Register"=>"0xEDFD","Scale"=>"1","Unit"=>"","SetItems"=>"Automatic_equalization_mode:multiple,disabled","GetItems"=>"Automatic_equalization_mode:noArg","SpezialSetGet"=>"0:alt});","Payloadnibbles"=>"2"});
+
+my $MPPTSets = "Restart:noArg Charger_mode:off,on Relay_battery_low_voltage_set:slider,9,0.1,95 Relay_battery_low_voltage_clear:slider,9,0.1,95 Relay_battery_high_voltage_set:slider,9,0.1,95 ".
+               "Relay_battery_high_voltage_clear:slider,9,0.1,95 Relay_minimum_enabled_time:slider,0,1,500 Clear_history:noArg RX_Port_operation_mode:Remote_On_off,Load_output_configuration,".
+               "Load_output_on_off_remote_control_inverted,Load_output_on_off_remote_control_normal Load_switch_low_level:noArg Load_switch_high_level:noArg TX_Port_operation_mode:Pulse_every".
+               "0_01kWh,Lighting_control_pwm_normal,Lighting_control_pwm_inverted,Virtual_load_output Load_output_control:off,auto,alt1,alt2,on,user1,user2,automatic_energy_selector ".
+               "Relay_operation_mode:off,PV_V_high,int_temp_high,Batt_Voltage_low,equalization_active,Error_cond_present,int_temp_low,Batt_Voltage_too_high,Charger_in_float_or_storage,".
+               "day_detection,load_control Charger_maximum_current:noArg Battery_low_temperature_level:noArg Low_temperature_charge_current:noArg Battery_maximum_current:noArg ".
+               "Battery_type:TYPE_1_GEL_Victron_Long_Life_14_1V,TYPE_2_GEL_Victron_Deep_discharge_14_3V,TYPE_3_GEL_Victron_Deep_discharge_14_4V,TYPE_4_AGM_Victron_Deep_discharge_14_7V,".
+               "TYPE_5_Tubular_plate_cyclic_mode_1_14_9V,TYPE_6_Tubular_plate_cyclic_mode_2_15_1V,TYPE_7_Tubular_plate_cyclic_mode_3_15_3V,TYPE_8_LiFEPO4_14_2V,User_defined ".
+               "Battery_temp_compensation:noArg Battery_equalization_voltage Battery_float_voltage Battery_absorption_voltage:noArg Automatic_equalization_mode:multiple,disabled";
+
+my $MPPTGets = "ConfigAll:noArg History_all:noArg Charger_mode:off,on,off Relay_battery_low_voltage_set:noArg Relay_battery_low_voltage_clear:noArg Relay_battery_high_voltage_set:noArg ".
+               "Relay_battery_high_voltage_clear:noArg Relay_minimum_enabled_time:noArg Total_history:noArg History_today:noArg History-1:noArg History-2:noArg History-3:noArg ".
+               "History-4:noArg History-5:noArg History-6:noArg History-7:noArg History-8:noArg History-9:noArg History-10:noArg History-11:noArg History-12:noArg History-13:noArg ".
+               "History-14:noArg History-15:noArg History-16:noArg History-17:noArg History-18:noArg History-19:noArg History-20:noArg History-21:noArg History-22:noArg History-23:noArg ".
+               "History-24:noArg History-25:noArg History-26:noArg History-27:noArg History-28:noArg History-29:noArg History-30:noArg Charge_voltage_set-point:noArg Battery_voltage_sense:noArg ".
+               "Network_mode:noArg Network_status:noArg Solar_activity:noArg RX_Port_operation_mode:noArg Load_switch_low_level:noArg Load_switch_high_level:noArg TX_Port_operation_mode:noArg ".
+               "oad_output_control:noArg Relay_operation_mode:noArg Charger_maximum_current:noArg Battery_low_temperature_level:noArg Low_temperature_charge_current:noArg ".
+               "Battery_temperature:noArg Battery_maximum_current:noArg Battery_type:noArg Battery_temp_compensation:noArg Battery_equalization_voltage:noArg ".
+               "Battery_float_voltage:noArg Battery_absorption_voltage:noArg Automatic_equalization_mode:noArg";
+
+
+
+my %inverter_reg = ('Device_mode'=>{"Register"=>"0x0200","Scale"=>"1","Unit"=>"","SetItems"=>"Device_mode:on,off,eco","GetItems"=>"Device_mode:noArg","SpezialSetGet"=>"02:04:05","Payloadnibbles"=>"2"},
+                'ALARM_LOW_VOLTAGE_SET'=>{"Register"=>"0x0320","Scale"=>"0,01","Unit"=>"V","SetItems"=>"ALARM_LOW_VOLTAGE_SET","GetItems"=>"ALARM_LOW_VOLTAGE_SET:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'ALARM_LOW_VOLTAGE_CLEAR'=>{"Register"=>"0x0321","Scale"=>"0,01","Unit"=>"V","SetItems"=>"ALARM_LOW_VOLTAGE_CLEAR","GetItems"=>"ALARM_LOW_VOLTAGE_CLEAR:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'SHUTDOWN_LOW_VOLTAGE_SET'=>{"Register"=>"0x2210","Scale"=>"0,01","Unit"=>"V","SetItems"=>"SHUTDOWN_LOW_VOLTAGE_SET","GetItems"=>"SHUTDOWN_LOW_VOLTAGE_SET:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"},
+                'INV_OPER_ECO_MODE_INV_MIN'=>{"Register"=>"0xEB04","Scale"=>"0,001","Unit"=>"A","SetItems"=>"INV_OPER_ECO_MODE_INV_MIN","GetItems"=>"INV_OPER_ECO_MODE_INV_MIN:noArg","SpezialSetGet"=>"-","Payloadnibbles"=>"4"});
+
+my $InverterSets = "Restart:noArg Device_mode:on,off,eco AC_OUT_VOLTAGE_SETPOINT:noArg ALARM_LOW_VOLTAGE_SET:noArg ALARM_LOW_VOLTAGE_CLEAR:noArg SHUTDOWN_LOW_VOLTAGE_SET:noArg ".
+                   "INV_OPER_ECO_MODE_INV_MIN:noArg";
+
+my $InverterGets = "ConfigAll:noArg Device_mode:noArg AC_OUT_VOLTAGE_SETPOINT:noArg ALARM_LOW_VOLTAGE_SET:noArg ALARM_LOW_VOLTAGE_CLEAR:noArg ".
+                   "SHUTDOWN_LOW_VOLTAGE_SET:noArg INV_OPER_ECO_MODE_INV_MIN:noArg";
+
 #########################################################################
-#Key: "Register-ID"=>"Bezeichnung,Einheit,Skalierung/Bit,L?ngePayload(nibbles),min,max,zyklisch abfragen, getConfigAll, BMV,MPPT,Inverter,specialset/getValues,setGetItems",my %Register = ("0x0004"=>"Restore_default?-?-?-?-?-?000?000?-*-?-*-?-*-?-",
+#Key: "Register-ID"=>"Bezeichnung,Einheit,Skalierung/Bit,LängePayload(nibbles),min,max,zyklisch abfragen, getConfigAll, BMV,MPPT,Inverter,specialset/getValues,setGetItems",my %Register = ("0x0004"=>"Restore_default°-°-°-°-°-°000°000°-*-°-*-°-*-°-",
 my %BMV = (
-"0x0100"=>{"Bezeichnung"=>"PID", "ReadingName"=>"Devicetype_PID", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"PID:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0300"=>{"Bezeichnung"=>"Depth of the deepest discharge", "ReadingName"=>"Depth_of_the_deepest_discharge", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Depth_of_the_deepest_discharge:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0301"=>{"Bezeichnung"=>"Depth of the last discharge", "ReadingName"=>"Depth_of_the_last_discharge", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Depth_of_the_last_discharge:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0302"=>{"Bezeichnung"=>"Depth of the average discharge", "ReadingName"=>"Depth_of_the_averag_discharge", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Depth_of_the_average_discharge:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0303"=>{"Bezeichnung"=>"Number of cycles", "ReadingName"=>"Number_of_cycles", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_cycles:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0304"=>{"Bezeichnung"=>"Number of full discharges", "ReadingName"=>"Number_of_full discharges", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_full_discharges:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0305"=>{"Bezeichnung"=>"Cumulative Amp Hours", "ReadingName"=>"Cumulative_Amp_Hours", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Cumulative_Amp_Hours:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0306"=>{"Bezeichnung"=>"Minimum Voltage", "ReadingName"=>"Minimum_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Minimum_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0307"=>{"Bezeichnung"=>"Maximum Voltage", "ReadingName"=>"Maximum_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Maximum_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0308"=>{"Bezeichnung"=>"Seconds since full charge", "ReadingName"=>"Seconds_since_full_charge", "Einheit"=>"s", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Seconds_since_full_charge:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0309"=>{"Bezeichnung"=>"Number of automatic synchronizations", "ReadingName"=>"Number_of_automatic_synchronizations", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_automatic_synchronizations:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x030A"=>{"Bezeichnung"=>"Number of Low Voltage Alarms", "ReadingName"=>"Number_of_Low_Voltage_Alarms", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_Low_Voltage_Alarms:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x030B"=>{"Bezeichnung"=>"Number of High Voltage Alarms", "ReadingName"=>"Number_of_High_Voltage_Alarms", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_High_Voltage_Alarms:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x030E"=>{"Bezeichnung"=>"Minimum Starter Voltage", "ReadingName"=>"Minimum_Starter_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Minimum_Starter_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x030F"=>{"Bezeichnung"=>"Maximum Starter Voltage", "ReadingName"=>"Maximum_Starter_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Maximum_Starter_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0310"=>{"Bezeichnung"=>"Amount of discharged energy", "ReadingName"=>"Amount_of_discharged_energy", "Einheit"=>"kWh", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Amount_of_discharged_energy:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0311"=>{"Bezeichnung"=>"Amount of charged energy", "ReadingName"=>"Amount_of_charged_energy", "Einheit"=>"kWh", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Amount_of_charged_energy:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0320"=>{"Bezeichnung"=>"ALARM_LOW_VOLTAGE_SET", "ReadingName"=>"ALARM_LOW_VOLTAGE_SET", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"ALARM_LOW_VOLTAGE_SET:noArg", "setValues"=>"ALARM_LOW_VOLTAGE_SET", "spezialSetGet"=>"-"},
-"0x0321"=>{"Bezeichnung"=>"ALARM_LOW_VOLTAGE_CLEAR", "ReadingName"=>"ALARM_LOW_VOLTAGE_CLEAR", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"ALARM_LOW_VOLTAGE_CLEAR:noArg", "setValues"=>"ALARM_LOW_VOLTAGE_CLEAR", "spezialSetGet"=>"-"},
-"0x0322"=>{"Bezeichnung"=>"Alarm High Voltage", "ReadingName"=>"Alarm_High_Voltage", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Voltage:noArg", "setValues"=>"Alarm_High_Voltage:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0323"=>{"Bezeichnung"=>"Alarm High Voltage Clear", "ReadingName"=>"Alarm_High_Voltage_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Voltage_Clear:noArg", "setValues"=>"Alarm_High_Voltage_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0324"=>{"Bezeichnung"=>"Alarm Low Starter", "ReadingName"=>"Alarm_Low_Starter", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_Starter:noArg", "setValues"=>"Alarm_Low_Starter:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0325"=>{"Bezeichnung"=>"Alarm Low Starter Clear", "ReadingName"=>"Alarm_Low Starter_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_Starter_Clear:noArg", "setValues"=>"Alarm_Low_Starter_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0326"=>{"Bezeichnung"=>"Alarm High Starter", "ReadingName"=>"Alarm_High_Starter", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Starter:noArg", "setValues"=>"Alarm_High_Starter:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0327"=>{"Bezeichnung"=>"Alarm High Starter Clear", "ReadingName"=>"Alarm_High_Starter_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Starter_Clear:noArg", "setValues"=>"Alarm_High_Starter_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0328"=>{"Bezeichnung"=>"Alarm Low SOC", "ReadingName"=>"Alarm_Low_SOC", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_SOC:noArg", "setValues"=>"Alarm_Low_SOC:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0329"=>{"Bezeichnung"=>"Alarm Low SOC Clear", "ReadingName"=>"Alarm_Low_SOC Clear", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_SOC_Clear:noArg", "setValues"=>"Alarm_Low_SOC_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x032A"=>{"Bezeichnung"=>"Alarm Low Temperature", "ReadingName"=>"Alarm_Low_Temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_Temperature:noArg", "setValues"=>"Alarm_Low_Temperature:multiple,disabled", "spezialSetGet"=>"0:alt"},
-"0x032B"=>{"Bezeichnung"=>"Alarm Low Temperature Clear", "ReadingName"=>"Alarm_Low_Temperature_Clear", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_Temperature_Clear:noArg", "setValues"=>"Alarm_Low_Temperature_Clear:multiple,disabled", "spezialSetGet"=>"0:alt"},
-"0x032C"=>{"Bezeichnung"=>"Alarm High Temperature", "ReadingName"=>"Alarm_High_Temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Temperature:noArg", "setValues"=>"Alarm_High_Temperature:multiple,disabled", "spezialSetGet"=>"0:alt"},
-"0x032D"=>{"Bezeichnung"=>"Alarm High Temperature Clear", "ReadingName"=>"Alarm_High_Temperature_Clear", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Temperature_Clear:noArg", "setValues"=>"Alarm_High_Temperature_Clear:multiple,disabled", "spezialSetGet"=>"0:alt"},
-"0x0331"=>{"Bezeichnung"=>"Alarm Mid Voltage", "ReadingName"=>"Alarm_Mid_Voltage", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Mid_Voltage:noArg", "setValues"=>"Alarm_Mid_Voltage:slider,0,0.1,99", "spezialSetGet"=>"-"},
-"0x0332"=>{"Bezeichnung"=>"Alarm Mid Voltage Clear", "ReadingName"=>"Alarm_Mid_Voltage_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Mid_Voltage_Clear:noArg", "setValues"=>"Alarm_Mid_Voltage_Clear:slider,0,0.1,99", "spezialSetGet"=>"-"},
-"0x034D"=>{"Bezeichnung"=>"Relay Invert", "ReadingName"=>"Relay_Invert", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Invert:noArg", "setValues"=>"Relay_Invert:off,on", "spezialSetGet"=>"0:1"},
-"0x034E"=>{"Bezeichnung"=>"Relay State_Control", "ReadingName"=>"Relay_State_Control", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"1", "getConfigAll"=>"1", "getValues"=>"Relay_State_Control:noArg", "setValues"=>"Relay_State_Control:open,closed", "spezialSetGet"=>"0:1"},
-"0x034F"=>{"Bezeichnung"=>"Relay Mode", "ReadingName"=>"Relay_Mode", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"2", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Mode:noArg", "setValues"=>"Relay_Mode:default,chrg,rem", "spezialSetGet"=>"0:1:2"},
+"0x0100"=>{"Bezeichnung"=>"Devicetype_PID", "ReadingName"=>"Devicetype_PID", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"PID:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0300"=>{"Bezeichnung"=>"Depth_of_the_deepest_discharge", "ReadingName"=>"Depth_of_the_deepest_discharge", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Depth_of_the_deepest_discharge:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0301"=>{"Bezeichnung"=>"Depth_of_the_last_discharge", "ReadingName"=>"Depth_of_the_last_discharge", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Depth_of_the_last_discharge:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0302"=>{"Bezeichnung"=>"Depth_of_the_average_discharge", "ReadingName"=>"Depth_of_the_average_discharge", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Depth_of_the_average_discharge:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0303"=>{"Bezeichnung"=>"Number_of_cycles", "ReadingName"=>"Number_of_cycles", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_cycles:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0304"=>{"Bezeichnung"=>"Number_of_full_discharges", "ReadingName"=>"Number_of_full_discharges", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_full_discharges:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0305"=>{"Bezeichnung"=>"Cumulative_Amp_Hours", "ReadingName"=>"Cumulative_Amp_Hours", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Cumulative_Amp_Hours:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0306"=>{"Bezeichnung"=>"Minimum_Voltage", "ReadingName"=>"Minimum_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Minimum_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0307"=>{"Bezeichnung"=>"Maximum_Voltage", "ReadingName"=>"Maximum_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Maximum_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0308"=>{"Bezeichnung"=>"Seconds_since_full_charge", "ReadingName"=>"Seconds_since_full_charge", "Einheit"=>"s", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Seconds_since_full_charge:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0309"=>{"Bezeichnung"=>"Number_of_automatic_synchronizations", "ReadingName"=>"Number_of_automatic_synchronizations", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_automatic_synchronizations:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x030A"=>{"Bezeichnung"=>"Number_of_Low_Voltage_Alarms", "ReadingName"=>"Number_of_Low_Voltage_Alarms", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_Low_Voltage_Alarms:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x030B"=>{"Bezeichnung"=>"Number_of_High_Voltage_Alarms", "ReadingName"=>"Number_of_High_Voltage_Alarms", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Number_of_High_Voltage_Alarms:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x030E"=>{"Bezeichnung"=>"Minimum_Starter_Voltage", "ReadingName"=>"Minimum_Starter_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Minimum_Starter_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x030F"=>{"Bezeichnung"=>"Maximum_Starter_Voltage", "ReadingName"=>"Maximum_Starter_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Maximum_Starter_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0310"=>{"Bezeichnung"=>"Amount_of_discharged_energy", "ReadingName"=>"Amount_of_discharged_energy", "Einheit"=>"kWh", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Amount_of_discharged_energy:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0311"=>{"Bezeichnung"=>"Amount_of_charged_energy", "ReadingName"=>"Amount_of_charged_energy", "Einheit"=>"kWh", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Amount_of_charged_energy:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0320"=>{"Bezeichnung"=>"ALARM_LOW_VOLTAGE_SET", "ReadingName"=>"ALARM_LOW_VOLTAGE_SET", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"ALARM_LOW_VOLTAGE_SET:noArg", "setValues"=>"ALARM_LOW_VOLTAGE_SET:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0321"=>{"Bezeichnung"=>"ALARM_LOW_VOLTAGE_CLEAR", "ReadingName"=>"ALARM_LOW_VOLTAGE_CLEAR", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"ALARM_LOW_VOLTAGE_CLEAR:noArg", "setValues"=>"ALARM_LOW_VOLTAGE_CLEAR:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0322"=>{"Bezeichnung"=>"Alarm_High_Voltage", "ReadingName"=>"Alarm_High_Voltage", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Voltage:noArg", "setValues"=>"Alarm_High_Voltage:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0323"=>{"Bezeichnung"=>"Alarm_High_Voltage_Clear", "ReadingName"=>"Alarm_High_Voltage_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Voltage_Clear:noArg", "setValues"=>"Alarm_High_Voltage_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0324"=>{"Bezeichnung"=>"Alarm_Low_Starter", "ReadingName"=>"Alarm_Low_Starter", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_Starter:noArg", "setValues"=>"Alarm_Low_Starter:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0325"=>{"Bezeichnung"=>"Alarm_Low_Starter_Clear", "ReadingName"=>"Alarm_Low_Starter_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_Starter_Clear:noArg", "setValues"=>"Alarm_Low_Starter_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0326"=>{"Bezeichnung"=>"Alarm_High_Starter", "ReadingName"=>"Alarm_High_Starter", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Starter:noArg", "setValues"=>"Alarm_High_Starter:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0327"=>{"Bezeichnung"=>"Alarm_High_Starter_Clear", "ReadingName"=>"Alarm_High_Starter_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Starter_Clear:noArg", "setValues"=>"Alarm_High_Starter_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0328"=>{"Bezeichnung"=>"Alarm_Low_SOC", "ReadingName"=>"Alarm_Low_SOC", "Einheit"=>"%", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_SOC:noArg", "setValues"=>"Alarm_Low_SOC:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0329"=>{"Bezeichnung"=>"Alarm_Low_SOC_Clear", "ReadingName"=>"Alarm_Low_SOC_Clear", "Einheit"=>"%", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_SOC_Clear:noArg", "setValues"=>"Alarm_Low_SOC_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x032A"=>{"Bezeichnung"=>"Alarm_Low_Temperature", "ReadingName"=>"Alarm_Low_Temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_Temperature:noArg", "setValues"=>"Alarm_Low_Temperature:multiple,disabled", "spezialSetGet"=>"0:alt"},
+"0x032B"=>{"Bezeichnung"=>"Alarm_Low_Temperature_Clear", "ReadingName"=>"Alarm_Low_Temperature_Clear", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Low_Temperature_Clear:noArg", "setValues"=>"Alarm_Low_Temperature_Clear:multiple,disabled", "spezialSetGet"=>"0:alt"},
+"0x032C"=>{"Bezeichnung"=>"Alarm_High_Temperature", "ReadingName"=>"Alarm_High_Temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Temperature:noArg", "setValues"=>"Alarm_High_Temperature:multiple,disabled", "spezialSetGet"=>"0:alt"},
+"0x032D"=>{"Bezeichnung"=>"Alarm_High_Temperature_Clear", "ReadingName"=>"Alarm_High_Temperature_Clear", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_High_Temperature_Clear:noArg", "setValues"=>"Alarm_High_Temperature_Clear:multiple,disabled", "spezialSetGet"=>"0:alt"},
+"0x0331"=>{"Bezeichnung"=>"Alarm_Mid_Voltage", "ReadingName"=>"Alarm_Mid_Voltage", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Mid_Voltage:noArg", "setValues"=>"Alarm_Mid_Voltage:slider,0,0.1,99", "spezialSetGet"=>"-"},
+"0x0332"=>{"Bezeichnung"=>"Alarm_Mid_Voltage_Clear", "ReadingName"=>"Alarm_Mid_Voltage_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Mid_Voltage_Clear:noArg", "setValues"=>"Alarm_Mid_Voltage_Clear:slider,0,0.1,99", "spezialSetGet"=>"-"},
+"0x034D"=>{"Bezeichnung"=>"Relay_Invert", "ReadingName"=>"Relay_Invert", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Invert:noArg", "setValues"=>"Relay_Invert:off,on", "spezialSetGet"=>"0:1"},
+"0x034E"=>{"Bezeichnung"=>"Relay_State_Control", "ReadingName"=>"Relay_State_Control", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"1", "getConfigAll"=>"1", "getValues"=>"Relay_State_Control:noArg", "setValues"=>"Relay_State_Control:open,closed", "spezialSetGet"=>"0:1"},
+"0x034F"=>{"Bezeichnung"=>"Relay_Mode", "ReadingName"=>"Relay_Mode", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"2", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Mode:noArg", "setValues"=>"Relay_Mode:default,chrg,rem", "spezialSetGet"=>"0:1:2"},
 "0x0350"=>{"Bezeichnung"=>"Relay_battery_low_voltage_set", "ReadingName"=>"Relay_battery_low_voltage_set", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"9", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_battery_low_voltage_set:noArg", "setValues"=>"Relay_battery_low_voltage_set:slider,9,0.1,95", "spezialSetGet"=>"-"},
 "0x0351"=>{"Bezeichnung"=>"Relay_battery_low_voltage_clear", "ReadingName"=>"Relay_battery_low_voltage_clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"9", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_battery_low_voltage_clear:noArg", "setValues"=>"Relay_battery_low_voltage_clear:slider,9,0.1,95", "spezialSetGet"=>"-"},
 "0x0352"=>{"Bezeichnung"=>"Relay_battery_high_voltage_set", "ReadingName"=>"Relay_battery_high_voltage_set", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"9", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_battery_high_voltage_set:noArg", "setValues"=>"Relay_battery_high_voltage_set:slider,9,0.1,95", "spezialSetGet"=>"-"},
 "0x0353"=>{"Bezeichnung"=>"Relay_battery_high_voltage_clear", "ReadingName"=>"Relay_battery_high_voltage_clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"9", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_battery_high_voltage_clear:noArg", "setValues"=>"Relay_battery_high_voltage_clear:slider,9,0.1,95", "spezialSetGet"=>"-"},
-"0x0354"=>{"Bezeichnung"=>"Relay Low Starter", "ReadingName"=>"Relay_Low_Starter", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Starter:noArg", "setValues"=>"Relay_Low_Starter:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0355"=>{"Bezeichnung"=>"Relay Low Starter Clear", "ReadingName"=>"Relay_Low_Starter Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Starter_Clear:noArg", "setValues"=>"Relay_Low_Starter_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0356"=>{"Bezeichnung"=>"Relay High Starter", "ReadingName"=>"Rela_High_Starter", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_High_Starter:noArg", "setValues"=>"Relay_High_Starter:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0357"=>{"Bezeichnung"=>"Relay High Starter Clear", "ReadingName"=>"Relay_High_Starter_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_High_Starter_Clear:noArg", "setValues"=>"Relay_High_Starter_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x035A"=>{"Bezeichnung"=>"Relay Low Temperature", "ReadingName"=>"Relay_Low_Temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Temperature:noArg", "setValues"=>"Relay_Low_Temperature:multiple,disabled", "spezialSetGet"=>"0:alt"},
-"0x035B"=>{"Bezeichnung"=>"Relay Low Temperature Clear", "ReadingName"=>"Relay_Low_Temperature_Clear", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Temperature_Clear:noArg", "setValues"=>"Relay_Low_Temperature_Clear:multiple,disabled", "spezialSetGet"=>"0:alt"},
-"0x035C"=>{"Bezeichnung"=>"Relay High Temperature", "ReadingName"=>"Relay_High_Temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_High_Temperature:noArg", "setValues"=>"Relay_High_Temperature:multiple,disabled", "spezialSetGet"=>"0:alt"},
-"0x035D"=>{"Bezeichnung"=>"Relay High Temperature Clear", "ReadingName"=>"Relay High Temperature Clear", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_High_Temperature_Clear:noArg", "setValues"=>"Relay_High_Temperature_Clear:multiple,disabled", "spezialSetGet"=>"0:alt"},
-"0x0361"=>{"Bezeichnung"=>"Relay Mid Voltage", "ReadingName"=>"Relay_Mid_Voltage", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Mid_Voltage:noArg", "setValues"=>"Relay_Mid_Voltage:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0362"=>{"Bezeichnung"=>"Relay Mid Voltage Clear", "ReadingName"=>"Relay_Mid_Voltage_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Mid_Voltage_Clear:noArg", "setValues"=>"Relay_Mid_Voltage_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
-"0x0382"=>{"Bezeichnung"=>"Mid-point voltage", "ReadingName"=>"Mid-point_voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Mid-point_voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0383"=>{"Bezeichnung"=>"Mid-point voltage deviation", "ReadingName"=>"Mid-point_voltage_deviation", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Mid-point_voltage_deviation:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0354"=>{"Bezeichnung"=>"Relay_Low_Starter", "ReadingName"=>"Relay_Low_Starter", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Starter:noArg", "setValues"=>"Relay_Low_Starter:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0355"=>{"Bezeichnung"=>"Relay_Low_Starter_Clear", "ReadingName"=>"Relay_Low_Starter_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Starter_Clear:noArg", "setValues"=>"Relay_Low_Starter_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0356"=>{"Bezeichnung"=>"Relay_High_Starter", "ReadingName"=>"Relay_High_Starter", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_High_Starter:noArg", "setValues"=>"Relay_High_Starter:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0357"=>{"Bezeichnung"=>"Relay_High_Starter_Clear", "ReadingName"=>"Relay_High_Starter_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_High_Starter_Clear:noArg", "setValues"=>"Relay_High_Starter_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x035A"=>{"Bezeichnung"=>"Relay_Low_Temperature", "ReadingName"=>"Relay_Low_Temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Temperature:noArg", "setValues"=>"Relay_Low_Temperature:multiple,disabled", "spezialSetGet"=>"0:alt"},
+"0x035B"=>{"Bezeichnung"=>"Relay_Low_Temperature_Clear", "ReadingName"=>"Relay_Low_Temperature_Clear", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Temperature_Clear:noArg", "setValues"=>"Relay_Low_Temperature_Clear:multiple,disabled", "spezialSetGet"=>"0:alt"},
+"0x035C"=>{"Bezeichnung"=>"Relay_High_Temperature", "ReadingName"=>"Relay_High_Temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_High_Temperature:noArg", "setValues"=>"Relay_High_Temperature:multiple,disabled", "spezialSetGet"=>"0:alt"},
+"0x035D"=>{"Bezeichnung"=>"Relay_High_Temperature_Clear", "ReadingName"=>"Relay_High_Temperature_Clear", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"174", "max"=>"372", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_High_Temperature_Clear:noArg", "setValues"=>"Relay_High_Temperature_Clear:multiple,disabled", "spezialSetGet"=>"0:alt"},
+"0x0361"=>{"Bezeichnung"=>"Relay_Mid_Voltage", "ReadingName"=>"Relay_Mid_Voltage", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Mid_Voltage:noArg", "setValues"=>"Relay_Mid_Voltage:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0362"=>{"Bezeichnung"=>"Relay_Mid_Voltage_Clear", "ReadingName"=>"Relay_Mid_Voltage_Clear", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Mid_Voltage_Clear:noArg", "setValues"=>"Relay_Mid_Voltage_Clear:slider,0,0.1,95", "spezialSetGet"=>"-"},
+"0x0382"=>{"Bezeichnung"=>"Mid-point_voltage", "ReadingName"=>"Mid-point_voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Mid-point_voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x0383"=>{"Bezeichnung"=>"Mid-point_voltage_deviation", "ReadingName"=>"Mid-point_voltage_deviation", "Einheit"=>"%", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Mid-point_voltage_deviation:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0x0FFE"=>{"Bezeichnung"=>"TTG", "ReadingName"=>"TTG", "Einheit"=>"min", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"TTG:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x0FFF"=>{"Bezeichnung"=>"SOC", "ReadingName"=>"SOC", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"SOC:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0x1000"=>{"Bezeichnung"=>"Battery Capacity", "ReadingName"=>"Battery_Capacity", "Einheit"=>"Ah", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"9999", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_Capacity:noArg", "setValues"=>"Battery_Capacity", "spezialSetGet"=>"-"},
-"0x1001"=>{"Bezeichnung"=>"Charged Voltage", "ReadingName"=>"Charged_Voltage", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Charged_Voltage:noArg", "setValues"=>"Charged_Voltage", "spezialSetGet"=>"-"},
-"0x1002"=>{"Bezeichnung"=>"Tail Current", "ReadingName"=>"Tail_Current", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0.5", "max"=>"10", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Tail_Current:noArg", "setValues"=>"Tail_Current:slider,0.5,0.1,10", "spezialSetGet"=>"-"},
-"0x1003"=>{"Bezeichnung"=>"Charged Detection Time", "ReadingName"=>"Charged_Detection_Time", "Einheit"=>"min", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"1", "max"=>"50", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Charged_Detection_Time:noArg", "setValues"=>"Charged_Detection_Time:slider,1,1,50", "spezialSetGet"=>"-"},
-"0x1004"=>{"Bezeichnung"=>"Charge Efficiency", "ReadingName"=>"Charge_Efficiency", "Einheit"=>"proz", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"50", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Charge_Efficiency:noArg", "setValues"=>"Charge_Efficiency:slider,50,1,99", "spezialSetGet"=>"-"},
-"0x1005"=>{"Bezeichnung"=>"Peukert Coefficient", "ReadingName"=>"Peukert_Coefficient", "Einheit"=>"", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"1", "max"=>"1.5", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Peukert_Coefficient:noArg", "setValues"=>"Peukert_Coefficient:slider,1,0.01,1.5", "spezialSetGet"=>"-"},
-"0x1006"=>{"Bezeichnung"=>"Current Threshold", "ReadingName"=>"Current_Threshold", "Einheit"=>"A", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"2", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Current_Threshold:noArg", "setValues"=>"Current_Threshold:slider,0,0.01,2", "spezialSetGet"=>"-"},
-"0x1007"=>{"Bezeichnung"=>"TTG Delta T", "ReadingName"=>"TTG_Delta_T", "Einheit"=>"min", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"12", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"TTG_Delta_T:noArg", "setValues"=>"TTG_Delta_T:slider,0,1,12", "spezialSetGet"=>"-"},
-"0x1008"=>{"Bezeichnung"=>"Discharge Floor Relay Low Soc Set", "ReadingName"=>"Discharge_Floor_Relay_Low_Soc_Set", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Discharge_Floor_Relay_Low_Soc_Set:noArg", "setValues"=>"Discharge_Floor_Relay_Low_Soc_Set:slider,0,0.1,99", "spezialSetGet"=>"-"},
-"0x1009"=>{"Bezeichnung"=>"Relay Low Soc Clear", "ReadingName"=>"Relay_Low_Soc_Clear", "Einheit"=>"proz", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Soc_Clear:noArg", "setValues"=>"Relay_Low_Soc_Clear:slider,0,0.1,99", "spezialSetGet"=>"-"},
+"0x0FFF"=>{"Bezeichnung"=>"SOC", "ReadingName"=>"SOC", "Einheit"=>"%", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"SOC:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x1000"=>{"Bezeichnung"=>"Battery_Capacity", "ReadingName"=>"Battery_Capacity", "Einheit"=>"Ah", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"9999", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_Capacity:noArg", "setValues"=>"Battery_Capacity:multiple", "spezialSetGet"=>"-"},
+"0x1001"=>{"Bezeichnung"=>"Charged_Voltage", "ReadingName"=>"Charged_Voltage", "Einheit"=>"V", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"95", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Charged_Voltage:noArg", "setValues"=>"Charged_Voltage", "spezialSetGet"=>"-"},
+"0x1002"=>{"Bezeichnung"=>"Tail_Current", "ReadingName"=>"Tail_Current", "Einheit"=>"%", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0.5", "max"=>"10", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Tail_Current:noArg", "setValues"=>"Tail_Current:slider,0.5,0.1,10", "spezialSetGet"=>"-"},
+"0x1003"=>{"Bezeichnung"=>"Charged_Detection_Time", "ReadingName"=>"Charged_Detection_Time", "Einheit"=>"min", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"1", "max"=>"50", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Charged_Detection_Time:noArg", "setValues"=>"Charged_Detection_Time:slider,1,1,50", "spezialSetGet"=>"-"},
+"0x1004"=>{"Bezeichnung"=>"Charge_Efficiency", "ReadingName"=>"Charge_Efficiency", "Einheit"=>"%", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"50", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Charge_Efficiency:noArg", "setValues"=>"Charge_Efficiency:slider,50,1,99", "spezialSetGet"=>"-"},
+"0x1005"=>{"Bezeichnung"=>"Peukert_Coefficient", "ReadingName"=>"Peukert_Coefficient", "Einheit"=>"", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"1", "max"=>"1.5", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Peukert_Coefficient:noArg", "setValues"=>"Peukert_Coefficient:slider,1,0.01,1.5", "spezialSetGet"=>"-"},
+"0x1006"=>{"Bezeichnung"=>"Current_Threshold", "ReadingName"=>"Current_Threshold", "Einheit"=>"A", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"2", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Current_Threshold:noArg", "setValues"=>"Current_Threshold:slider,0,0.01,2", "spezialSetGet"=>"-"},
+"0x1007"=>{"Bezeichnung"=>"TTG_Delta_T", "ReadingName"=>"TTG_Delta_T", "Einheit"=>"min", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"12", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"TTG_Delta_T:noArg", "setValues"=>"TTG_Delta_T:slider,0,1,12", "spezialSetGet"=>"-"},
+"0x1008"=>{"Bezeichnung"=>"Discharge_Floor_Relay_Low_Soc_Set", "ReadingName"=>"Discharge_Floor_Relay_Low_Soc_Set", "Einheit"=>"%", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Discharge_Floor_Relay_Low_Soc_Set:noArg", "setValues"=>"Discharge_Floor_Relay_Low_Soc_Set:slider,0,0.1,99", "spezialSetGet"=>"-"},
+"0x1009"=>{"Bezeichnung"=>"Relay_Low_Soc_Clear", "ReadingName"=>"Relay_Low_Soc_Clear", "Einheit"=>"%", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"99", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Low_Soc_Clear:noArg", "setValues"=>"Relay_Low_Soc_Clear:slider,0,0.1,99", "spezialSetGet"=>"-"},
 "0x100A"=>{"Bezeichnung"=>"Relay_minimum_enabled_time", "ReadingName"=>"Relay_minimum_enabled_time", "Einheit"=>"min", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"500", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_minimum_enabled_time:noArg", "setValues"=>"Relay_minimum_enabled_time:slider,0,1,500", "spezialSetGet"=>"-"},
-"0x100B"=>{"Bezeichnung"=>"Relay Disable Time", "ReadingName"=>"Relay_Disable_Time", "Einheit"=>"min", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"500", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Disable_Time:noArg", "setValues"=>"Relay_Disable_Time:slider,0,1,500", "spezialSetGet"=>"-"},
-"0x1029"=>{"Bezeichnung"=>"set Zero Current", "ReadingName"=>"set_Zero_Current", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"-", "setValues"=>"set_Zero_Current:noArg", "spezialSetGet"=>"-"},
-"0x1034"=>{"Bezeichnung"=>"User Current Zero (read only)", "ReadingName"=>"User_Current_Zero_(read only)", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"User_Current_Zero:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0xED7D"=>{"Bezeichnung"=>"Aux (starter) Voltage", "ReadingName"=>"Aux_(starter)_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Aux_(starter)_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0x100B"=>{"Bezeichnung"=>"Relay_Disable_Time", "ReadingName"=>"Relay_Disable_Time", "Einheit"=>"min", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"500", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_Disable_Time:noArg", "setValues"=>"Relay_Disable_Time:slider,0,1,500", "spezialSetGet"=>"-"},
+"0x1029"=>{"Bezeichnung"=>"set_Zero_Current", "ReadingName"=>"set_Zero_Current", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"-", "setValues"=>"set_Zero_Current:noArg", "spezialSetGet"=>"-"},
+"0x1034"=>{"Bezeichnung"=>"User_Current_Zero_(read_only)", "ReadingName"=>"User_Current_Zero_(read_only)", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"User_Current_Zero:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0xED7D"=>{"Bezeichnung"=>"Aux_(starter)_Voltage", "ReadingName"=>"Aux_(starter)_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Aux_(starter)_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xED8D"=>{"Bezeichnung"=>"Battery_Voltage", "ReadingName"=>"Battery_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Battery_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xED8E"=>{"Bezeichnung"=>"Power", "ReadingName"=>"Power", "Einheit"=>"W", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Power:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xED8F"=>{"Bezeichnung"=>"Current", "ReadingName"=>"Current", "Einheit"=>"A", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Current:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xEDDD"=>{"Bezeichnung"=>"System_yield", "ReadingName"=>"System_yield", "Einheit"=>"kWh", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"System_yield:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xEDEC"=>{"Bezeichnung"=>"Battery_temperature", "ReadingName"=>"Battery_temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Battery_temperature:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0xEEE0"=>{"Bezeichnung"=>"Show Voltage", "ReadingName"=>"Show_Voltage", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Voltage:noArg", "setValues"=>"Show_Voltage:off,on", "spezialSetGet"=>"0:1"},
-"0xEEE1"=>{"Bezeichnung"=>"Show Auxiliary Voltage", "ReadingName"=>"Show_Auxiliary_Voltage", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Auxiliary_Voltage:noArg", "setValues"=>"Show_Auxiliary_Voltage:off,on", "spezialSetGet"=>"0:1"},
-"0xEEE2"=>{"Bezeichnung"=>"Show Mid Voltage", "ReadingName"=>"Show_Mid_Voltage", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Mid_Voltage:noArg", "setValues"=>"Show_Mid_Voltage:off,on", "spezialSetGet"=>"0:1"},
-"0xEEE3"=>{"Bezeichnung"=>"Show Current", "ReadingName"=>"Show_Current", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Current:noArg", "setValues"=>"Show_Current:off,on", "spezialSetGet"=>"0:1"},
-"0xEEE4"=>{"Bezeichnung"=>"Show Cunsumed AH", "ReadingName"=>"Show_Cunsumed_AH", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Cunsumed_AH:noArg", "setValues"=>"Show_Cunsumed_AH:off,on", "spezialSetGet"=>"0:1"},
-"0xEEE5"=>{"Bezeichnung"=>"Show SOC", "ReadingName"=>"Show_SOC", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_SOC:noArg", "setValues"=>"Show_SOC:off,on", "spezialSetGet"=>"0:1"},
-"0xEEE6"=>{"Bezeichnung"=>"Show TTG", "ReadingName"=>"Show_TTG", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_TTG:noArg", "setValues"=>"Show_TTG:off,on", "spezialSetGet"=>"0:1"},
-"0xEEE7"=>{"Bezeichnung"=>"Show Temperature", "ReadingName"=>"Show_Temperature", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Temperature:noArg", "setValues"=>"Show_Temperature:off,on", "spezialSetGet"=>"0:1"},
-"0xEEE8"=>{"Bezeichnung"=>"Show Power", "ReadingName"=>"Show_Power", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Power:noArg", "setValues"=>"Show_Power:off,on", "spezialSetGet"=>"0:1"},
-"0xEEF4"=>{"Bezeichnung"=>"Temperature coefficient", "ReadingName"=>"Temperature_coefficient", "Einheit"=>"prozCAP_degC", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"20", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Temperature_coefficient:noArg", "setValues"=>"Temperature_coefficient:slider,0,0.1,20", "spezialSetGet"=>"-"},
-"0xEEF5"=>{"Bezeichnung"=>"Scroll Speed", "ReadingName"=>"Scroll_Speed", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"1", "max"=>"5", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Scroll_Speed:noArg", "setValues"=>"Scroll_Speed:slider,0,1,5", "spezialSetGet"=>"-"},
-"0xEEF6"=>{"Bezeichnung"=>"Setup Lock", "ReadingName"=>"Setup_Lock", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Setup_Lock:noArg", "setValues"=>"Setup_Lock:off,on", "spezialSetGet"=>"0:1"},
-"0xEEF7"=>{"Bezeichnung"=>"Temperature Unit", "ReadingName"=>"Temperature_Unit", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Temperature_Unit:noArg", "setValues"=>"Temperature_Unit:Celsius,Fahrenheit", "spezialSetGet"=>"0:1"},
-"0xEEF8"=>{"Bezeichnung"=>"Auxiliary Input", "ReadingName"=>"Auxiliary_Input", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"2", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Auxiliary_Input:noArg", "setValues"=>"Auxiliary_Input:start,mid,temp", "spezialSetGet"=>"0:1"},
-"0xEEF9"=>{"Bezeichnung"=>"SW Version", "ReadingName"=>"SW_Version", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"SW_Version:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0xEEFA"=>{"Bezeichnung"=>"Shunt Volts", "ReadingName"=>"Shunt_Volts", "Einheit"=>"V", "Skalierung"=>"0.001", "Payloadnibbles"=>"4", "min"=>"0.001", "max"=>"0.1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Shunt_Volts:noArg", "setValues"=>"Shunt_Volts", "spezialSetGet"=>"-"},
-"0xEEFB"=>{"Bezeichnung"=>"Shunt Amps", "ReadingName"=>"Shunt_Amps", "Einheit"=>"A", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"9999", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Shunt_Amps:noArg", "setValues"=>"Shunt_Amps", "spezialSetGet"=>"-"},
-"0xEEFC"=>{"Bezeichnung"=>"Alarm Buzzer", "ReadingName"=>"Alarm_Buzzer", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Buzzer:noArg", "setValues"=>"Alarm_Buzzer:off,on", "spezialSetGet"=>"0:1"},
-"0xEEFE"=>{"Bezeichnung"=>"Backlight Intensity", "ReadingName"=>"Backlight_Intensity", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"9", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Backlight_Intensity:noArg", "setValues"=>"Backlight_Intensity:0,1,2,3,4,5,6,7,8,9", "spezialSetGet"=>"-"},
+"0xEEE0"=>{"Bezeichnung"=>"Show_Voltage", "ReadingName"=>"Show_Voltage", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Voltage:noArg", "setValues"=>"Show_Voltage:off,on", "spezialSetGet"=>"0:1"},
+"0xEEE1"=>{"Bezeichnung"=>"Show_Auxiliary_Voltage", "ReadingName"=>"Show_Auxiliary_Voltage", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Auxiliary_Voltage:noArg", "setValues"=>"Show_Auxiliary_Voltage:off,on", "spezialSetGet"=>"0:1"},
+"0xEEE2"=>{"Bezeichnung"=>"Show_Mid_Voltage", "ReadingName"=>"Show_Mid_Voltage", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Mid_Voltage:noArg", "setValues"=>"Show_Mid_Voltage:off,on", "spezialSetGet"=>"0:1"},
+"0xEEE3"=>{"Bezeichnung"=>"Show_Current", "ReadingName"=>"Show_Current", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Current:noArg", "setValues"=>"Show_Current:off,on", "spezialSetGet"=>"0:1"},
+"0xEEE4"=>{"Bezeichnung"=>"Show_Cunsumed_AH", "ReadingName"=>"Show_Cunsumed_AH", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Cunsumed_AH:noArg", "setValues"=>"Show_Cunsumed_AH:off,on", "spezialSetGet"=>"0:1"},
+"0xEEE5"=>{"Bezeichnung"=>"Show_SOC", "ReadingName"=>"Show_SOC", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_SOC:noArg", "setValues"=>"Show_SOC:off,on", "spezialSetGet"=>"0:1"},
+"0xEEE6"=>{"Bezeichnung"=>"Show_TTG", "ReadingName"=>"Show_TTG", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_TTG:noArg", "setValues"=>"Show_TTG:off,on", "spezialSetGet"=>"0:1"},
+"0xEEE7"=>{"Bezeichnung"=>"Show_Temperature", "ReadingName"=>"Show_Temperature", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Temperature:noArg", "setValues"=>"Show_Temperature:off,on", "spezialSetGet"=>"0:1"},
+"0xEEE8"=>{"Bezeichnung"=>"Show_Power", "ReadingName"=>"Show_Power", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Show_Power:noArg", "setValues"=>"Show_Power:off,on", "spezialSetGet"=>"0:1"},
+"0xEEF4"=>{"Bezeichnung"=>"Temperature_coefficient", "ReadingName"=>"Temperature_coefficient", "Einheit"=>"%CAP_degC", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"20", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Temperature_coefficient:noArg", "setValues"=>"Temperature_coefficient:slider,0,0.1,20", "spezialSetGet"=>"-"},
+"0xEEF5"=>{"Bezeichnung"=>"Scroll_Speed", "ReadingName"=>"Scroll_Speed", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"1", "max"=>"5", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Scroll_Speed:noArg", "setValues"=>"Scroll_Speed:slider,0,1,5", "spezialSetGet"=>"-"},
+"0xEEF6"=>{"Bezeichnung"=>"Setup_Lock", "ReadingName"=>"Setup_Lock", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Setup_Lock:noArg", "setValues"=>"Setup_Lock:off,on", "spezialSetGet"=>"0:1"},
+"0xEEF7"=>{"Bezeichnung"=>"Temperature_Unit", "ReadingName"=>"Temperature_Unit", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Temperature_Unit:noArg", "setValues"=>"Temperature_Unit:Celsius,Fahrenheit", "spezialSetGet"=>"0:1"},
+"0xEEF8"=>{"Bezeichnung"=>"Auxiliary_Input", "ReadingName"=>"Auxiliary_Input", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"2", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Auxiliary_Input:noArg", "setValues"=>"Auxiliary_Input:start,mid,temp", "spezialSetGet"=>"0:1"},
+"0xEEF9"=>{"Bezeichnung"=>"SW_Version", "ReadingName"=>"SW_Version", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"SW_Version:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0xEEFA"=>{"Bezeichnung"=>"Shunt_Volts", "ReadingName"=>"Shunt_Volts", "Einheit"=>"V", "Skalierung"=>"0.001", "Payloadnibbles"=>"4", "min"=>"0.001", "max"=>"0.1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Shunt_Volts:noArg", "setValues"=>"Shunt_Volts", "spezialSetGet"=>"-"},
+"0xEEFB"=>{"Bezeichnung"=>"Shunt_Amps", "ReadingName"=>"Shunt_Amps", "Einheit"=>"A", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"0", "max"=>"9999", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Shunt_Amps:noArg", "setValues"=>"Shunt_Amps", "spezialSetGet"=>"-"},
+"0xEEFC"=>{"Bezeichnung"=>"Alarm_Buzzer", "ReadingName"=>"Alarm_Buzzer", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"1", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Alarm_Buzzer:noArg", "setValues"=>"Alarm_Buzzer:off,on", "spezialSetGet"=>"0:1"},
+"0xEEFE"=>{"Bezeichnung"=>"Backlight_Intensity", "ReadingName"=>"Backlight_Intensity", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"0", "max"=>"9", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Backlight_Intensity:noArg", "setValues"=>"Backlight_Intensity:0,1,2,3,4,5,6,7,8,9", "spezialSetGet"=>"-"},
 "0xEEFF"=>{"Bezeichnung"=>"Consumed_Ah", "ReadingName"=>"Consumed_Ah", "Einheit"=>"Ah", "Skalierung"=>"0.1", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Consumed_Ah:noArg", "setValues"=>"-", "spezialSetGet"=>"-"});
 
 
@@ -201,12 +610,12 @@ my %MPPT = (
 "0xED9C"=>{"Bezeichnung"=>"Load_switch_low_level", "ReadingName"=>"Load_switch_low_level", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Load_switch_low_level:noArg", "setValues"=>"Load_switch_low_level", "spezialSetGet"=>"-"},
 "0xED9D"=>{"Bezeichnung"=>"Load_switch_high_level", "ReadingName"=>"Load_switch_high_level", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Load_switch_high_level:noArg", "setValues"=>"Load_switch_high_level", "spezialSetGet"=>"-"},
 "0xED9E"=>{"Bezeichnung"=>"TX_Port_operation_mode", "ReadingName"=>"TX_Port_operation_mode", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"TX_Port_operation_mode:noArg", "setValues"=>"TX_Port_operation_mode:Pulse_every0_01kWh,Lighting_control_pwm_normal,Lighting_control_pwm_inverted,Virtual_load_output", "spezialSetGet"=>"0:1:2:3:4"},
-"0xEDA0"=>{"Bezeichnung"=>"Lightning Controller timer event 0", "ReadingName"=>"Lightning Controller timer event 0", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Lightning_Controller_timer_event_0:noArg", "setValues"=>"Lightning_Controller_timer_event_0", "spezialSetGet"=>"-"},
-"0xEDA1"=>{"Bezeichnung"=>"Lightning Controller timer event 1", "ReadingName"=>"Lightning Controller timer event 1", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Lightning_Controller_timer_event_1:noArg", "setValues"=>"Lightning_Controller_timer_event_1", "spezialSetGet"=>"-"},
-"0xEDA2"=>{"Bezeichnung"=>"Lightning Controller timer event 2", "ReadingName"=>"Lightning Controller timer event 2", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Lightning_Controller_timer_event_2:noArg", "setValues"=>"Lightning_Controller_timer_event_2", "spezialSetGet"=>"-"},
-"0xEDA3"=>{"Bezeichnung"=>"Lightning Controller timer event 3", "ReadingName"=>"Lightning Controller timer event 3", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Lightning_Controller_timer_event_3:noArg", "setValues"=>"Lightning_Controller_timer_event_3", "spezialSetGet"=>"-"},
-"0xEDA4"=>{"Bezeichnung"=>"Lightning Controller timer event 4", "ReadingName"=>"Lightning Controller timer event 4", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Lightning_Controller_timer_event_4:noArg", "setValues"=>"Lightning_Controller_timer_event_4", "spezialSetGet"=>"-"},
-"0xEDA5"=>{"Bezeichnung"=>"Lightning Controller timer event 5", "ReadingName"=>"Lightning Controller timer event 5", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Lightning_Controller_timer_event_5:noArg", "setValues"=>"Lightning_Controller_timer_event_5", "spezialSetGet"=>"-"},
+"0xEDA0"=>{"Bezeichnung"=>"Lightning_Controller_timer_event_0", "ReadingName"=>"Lightning_Controller_timer_event_0", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Lightning_Controller_timer_event_0:noArg", "setValues"=>"Lightning_Controller_timer_event_0", "spezialSetGet"=>"-"},
+"0xEDA1"=>{"Bezeichnung"=>"Lightning_Controller_timer_event_1", "ReadingName"=>"Lightning_Controller_timer_event_1", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Lightning_Controller_timer_event_1:noArg", "setValues"=>"Lightning_Controller_timer_event_1", "spezialSetGet"=>"-"},
+"0xEDA2"=>{"Bezeichnung"=>"Lightning_Controller_timer_event_2", "ReadingName"=>"Lightning_Controller_timer_event_2", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Lightning_Controller_timer_event_2:noArg", "setValues"=>"Lightning_Controller_timer_event_2", "spezialSetGet"=>"-"},
+"0xEDA3"=>{"Bezeichnung"=>"Lightning_Controller_timer_event_3", "ReadingName"=>"Lightning_Controller_timer_event_3", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Lightning_Controller_timer_event_3:noArg", "setValues"=>"Lightning_Controller_timer_event_3", "spezialSetGet"=>"-"},
+"0xEDA4"=>{"Bezeichnung"=>"Lightning_Controller_timer_event_4", "ReadingName"=>"Lightning_Controller_timer_event_4", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Lightning_Controller_timer_event_4:noArg", "setValues"=>"Lightning_Controller_timer_event_4", "spezialSetGet"=>"-"},
+"0xEDA5"=>{"Bezeichnung"=>"Lightning_Controller_timer_event_5", "ReadingName"=>"Lightning_Controller_timer_event_5", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Lightning_Controller_timer_event_5:noArg", "setValues"=>"Lightning_Controller_timer_event_5", "spezialSetGet"=>"-"},
 "0xEDA7"=>{"Bezeichnung"=>"Mid-point_shift", "ReadingName"=>"Mid-point_shift", "Einheit"=>"min", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Mid-point_shift:noArg", "setValues"=>"Mid-point_shift", "spezialSetGet"=>"-"},
 "0xEDA8"=>{"Bezeichnung"=>"Load_output_state", "ReadingName"=>"Load_output_state", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"2", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Load_output_state:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xEDA9"=>{"Bezeichnung"=>"Load_output_voltage", "ReadingName"=>"Load_output_voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Load_output_voltage:noArg", "setValues"=>"Load_output_voltage", "spezialSetGet"=>"-"},
@@ -311,7 +720,7 @@ my %TextMapping = (
 "IL"=>{"BMV"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}, "MPPT"=>{"Register"=>"0xEDAD","scale"=>0.001,"ReName"=>"-"}, "Inverter"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}},
 "IPV"=>{"BMV"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}, "MPPT"=>{"Register"=>"0xEDBD","scale"=>0.001,"ReName"=>"-"}, "Inverter"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}},
 "LOAD"=>{"BMV"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}, "MPPT"=>{"Register"=>"0xEDA8","scale"=>0,"ReName"=>"-"}, "Inverter"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}},
-"SOC"=>{"BMV"=>{"Register"=>"0x0FFF","scale"=>0.1,"ReName"=>"-"}, "MPPT"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}, "Inverter"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}},
+"SOC"=>{"BMV"=>{"Register"=>"0x0FFF","scale"=>1,"ReName"=>"-"}, "MPPT"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}, "Inverter"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}},
 "T"=>{"BMV"=>{"Register"=>"0xEDEC","scale"=>1,"ReName"=>"-"}, "MPPT"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}, "Inverter"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}},
 "TTG"=>{"BMV"=>{"Register"=>"0x0FFE","scale"=>1,"ReName"=>"-"}, "MPPT"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}, "Inverter"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}},
 "CE"=>{"BMV"=>{"Register"=>"0xEEFF","scale"=>0.001,"ReName"=>"-"}, "MPPT"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}, "Inverter"=>{"Register"=>"-","scale"=>0,"ReName"=>"-"}},
@@ -379,171 +788,29 @@ my %HistoryRecord = ("0"=>"Reserved,-,-,2" ,
 #00 Error_3
 #0000009E --> 0000 0300  --> Total_yield_resettable*0.01 kWh  6-9
 #05 ED 04 00 --> 0004ED05  --> Total_yield_system,kWh,0.01
-               
-my %PrID =   ("600S"=>"BMV-600S ",
-              "712 Smart"=>"BMV-712 Smart ",
-              "0x203"=>"BMV-700 ", 
-              "0x204"=>"BMV-702 ", 
-              "0x205"=>"BMV-700H ",
-              "0xA381"=>"BMV-712 Smart", 
-              "0x0300"=>"BlueSolar MPPT 70|15* ", 
-              "0xA040"=>"BlueSolar MPPT 75|50* ", 
-              "0xA041"=>"BlueSolar MPPT 150|35* ", 
-              "0xA042"=>"BlueSolar MPPT 75|15 ", 
-              "0xA043"=>"BlueSolar MPPT 100|15 ", 
-              "0xA044"=>"BlueSolar MPPT 100|30* ", 
-              "0xA045"=>"BlueSolar MPPT 100|50* ", 
-              "0xA046"=>"BlueSolar MPPT 150|70 ", 
-              "0xA047"=>"BlueSolar MPPT 150|100 ", 
-              "0xA049"=>"BlueSolar MPPT 100|50 rev2 ", 
-              "0xA04A"=>"BlueSolar MPPT 100|30 rev2 ", 
-              "0xA04B"=>"BlueSolar MPPT 150|35 rev2 ", 
-              "0xA04C"=>"BlueSolar MPPT 75|10 ", 
-              "0xA04D"=>"BlueSolar MPPT 150|45 ", 
-              "0xA04E"=>"BlueSolar MPPT 150|60 ", 
-              "0xA04F"=>"BlueSolar MPPT 150|85 ", 
-              "0xA050"=>"SmartSolar MPPT 250|100 ", 
-              "0xA051"=>"SmartSolar MPPT 150|100* ", 
-              "0xA052"=>"SmartSolar MPPT 150|85* ", 
-              "0xA053"=>"SmartSolar MPPT 75|15 ", 
-              "0xA054"=>"SmartSolar MPPT 75|10 ", 
-              "0xA055"=>"SmartSolar MPPT 100|15 ", 
-              "0xA056"=>"SmartSolar MPPT 100|30 ", 
-              "0xA057"=>"SmartSolar MPPT 100|50 ", 
-              "0xA058"=>"SmartSolar MPPT 150|35 ", 
-              "0xA059"=>"SmartSolar MPPT 150|100 rev2 ", 
-              "0xA05A"=>"SmartSolar MPPT 150|85 rev2 ", 
-              "0xA05B"=>"SmartSolar MPPT 250|70 ", 
-              "0xA05C"=>"SmartSolar MPPT 250|85 ", 
-              "0xA05D"=>"SmartSolar MPPT 250|60 ", 
-              "0xA05E"=>"SmartSolar MPPT 250|45 ", 
-              "0xA05F"=>"SmartSolar MPPT 100|20 ", 
-              "0xA060"=>"SmartSolar MPPT 100|20 48V ", 
-              "0xA061"=>"SmartSolar MPPT 150|45 ", 
-              "0xA062"=>"SmartSolar MPPT 150|60 ", 
-              "0xA063"=>"SmartSolar MPPT 150|70 ", 
-              "0xA064"=>"SmartSolar MPPT 250|85 rev2 ", 
-              "0xA065"=>"SmartSolar MPPT 250|100 rev2 ", 
-              "0xA201"=>"Phoenix Inverter 12V 250VA 230V* ", 
-              "0xA202"=>"Phoenix Inverter 24V 250VA 230V* ", 
-              "0xA204"=>"Phoenix Inverter 48V 250VA 230V* ", 
-              "0xA211"=>"Phoenix Inverter 12V 375VA 230V* ", 
-              "0xA212"=>"Phoenix Inverter 24V 375VA 230V* ", 
-              "0xA214"=>"Phoenix Inverter 48V 375VA 230V* ", 
-              "0xA221"=>"Phoenix Inverter 12V 500VA 230V* ", 
-              "0xA222"=>"Phoenix Inverter 24V 500VA 230V* ", 
-              "0xA224"=>"Phoenix Inverter 48V 500VA 230V* ", 
-              "0xA231"=>"Phoenix Inverter 12V 250VA 230V ", 
-              "0xA232"=>"Phoenix Inverter 24V 250VA 230V ", 
-              "0xA234"=>"Phoenix Inverter 48V 250VA 230V ", 
-              "0xA239"=>"Phoenix Inverter 12V 250VA 120V ", 
-              "0xA23A"=>"Phoenix Inverter 24V 250VA 120V ", 
-              "0xA23C"=>"Phoenix Inverter 48V 250VA 120V ", 
-              "0xA241"=>"Phoenix Inverter 12V 375VA 230V ", 
-              "0xA242"=>"Phoenix Inverter 24V 375VA 230V ", 
-              "0xA244"=>"Phoenix Inverter 48V 375VA 230V ", 
-              "0xA249"=>"Phoenix Inverter 12V 375VA 120V ", 
-              "0xA24A"=>"Phoenix Inverter 24V 375VA 120V ", 
-              "0xA24C"=>"Phoenix Inverter 48V 375VA 120V ", 
-              "0xA251"=>"Phoenix Inverter 12V 500VA 230V ", 
-              "0xA252"=>"Phoenix Inverter 24V 500VA 230V ", 
-              "0xA254"=>"Phoenix Inverter 48V 500VA 230V ", 
-              "0xA259"=>"Phoenix Inverter 12V 500VA 120V ", 
-              "0xA25A"=>"Phoenix Inverter 24V 500VA 120V ", 
-              "0xA25C"=>"Phoenix Inverter 48V 500VA 120V ", 
-              "0xA261"=>"Phoenix Inverter 12V 800VA 230V ", 
-              "0xA262"=>"Phoenix Inverter 24V 800VA 230V ", 
-              "0xA264"=>"Phoenix Inverter 48V 800VA 230V ", 
-              "0xA269"=>"Phoenix Inverter 12V 800VA 120V ", 
-              "0xA26A"=>"Phoenix Inverter 24V 800VA 120V ", 
-              "0xA26C"=>"Phoenix Inverter 48V 800VA 120V ", 
-              "0xA271"=>"Phoenix Inverter 12V 1200VA 230V ", 
-              "0xA272"=>"Phoenix Inverter 24V 1200VA 230V ", 
-              "0xA274"=>"Phoenix Inverter 48V 1200VA 230V ", 
-              "0xA279"=>"Phoenix Inverter 12V 1200VA 120V ", 
-              "0xA27A"=>"Phoenix Inverter 24V 1200VA 120V ", 
-              "0xA27C"=>"Phoenix Inverter 48V 1200VA 120V ");  
-
-#Alarm-Reason
-
-my %ARtext=   ("0"=>"--",
-               "2048"=>" High V AC out",
-               "1024"=>" Low V AC out",
-               "512"=>" DC-ripple",
-               "256"=>" Overload",
-               "128"=>"Mid Voltage",
-               "64"=>" High Temperature",
-               "32"=>" Low Temperature",
-               "17"=>" Charger internal temperature too high",
-               "16"=>" High Starter Voltage",
-               "8"=>" Low Starter Voltage",
-               "4"=>" Low SOC",
-               "2"=>" High Voltage",
-               "1"=>" Low Voltage");
-
-                 
-# ERR (Fehlercode)
-#my %ERR =    ('0'=>"kein Fehler",
-#              '2'=> "Battery voltage too high",
-#              '17'=>"Charger temperature too high",
-#              '18'=>"Charger over current",
-#              '20'=>"Bulk time limit exceeded",
-#              '26'=>"Terminals overheated",
-#              '33'=>"Input voltage too high (solar panel)",
-#              '34'=>"Input current too high (solar panel)",
-#              '38'=>"Input shutdown (due to excessive battery voltage)",
-#              '116'=>"Factory calibration data lost",
-#              '117'=>"Invalid/incompatible firmware",
-#              '119'=>"User settings invalid");
-#
-###### Mode
-#my %MODE =   ('0'=>"--",
-#              '1'=>"1",
-#              '2'=>"Inverter",
-#              '3'=>"3",
-#              '4'=>"Off",
-#              '5'=>"Eco");
-#
-#
-## CS (State of Operation) 
-#my %CS =    ('0'=>"OFF",
-#             '1'=>"Low Power(load search)",
-#             '2'=>"Fehler(off bis user reset)",
-#             '3'=>"Bulk",
-#             '4'=>"Absorption",
-#             '5'=>"Float",
-#             '6'=>"6 unknown",
-#             '7'=>"Cell balancing",
-#             '8'=>"8 unknown",
-#             '9'=>"Inverting(on)");
-
+ 
 ##################################################################################################################################################
-#Initialize 
+# Define
 ##################################################################################################################################################
-
+# called upon loading the module MY_MODULE
 sub VEDirect_Initialize($)
 {
   my ($hash) = @_;
 
-  require "$attr{global}{modpath}/FHEM/DevIo.pm";
-
-  $hash->{ReadFn}     = "VEDirect_Read";
-  $hash->{ReadyFn}    = "VEDirect_Ready";
-  $hash->{DefFn}      = "VEDirect_Define";
-  $hash->{AttrFn}     = "VEDirect_Attr";
-  $hash->{UndefFn}    = "VEDirect_Undef";
-  $hash->{SetFn}      = "VEDirect_Set";
-  $hash->{GetFn}      = "VEDirect_Get"; 
-  $hash->{ShutdownFn} = "VEDirect_Shutdown";
-  $hash->{AttrList}   = "do_not_notify:1,0 disable:0,1 disabledForIntervals IgnoreChecksum:1,0 LogHistoryToFile ".$readingFnAttributes;
-  $hash->{helper}{BUFFER} = "";
-} #UpdateTime_s:2,3,4,5,6,7,8,9,10,15,20,25,30  
-
-
+  $hash->{DefFn}    = "VEDirect_Define";
+  $hash->{UndefFn}  = "VEDirect_Undef";
+  $hash->{SetFn}    = "VEDirect_Set"; 
+  $hash->{GetFn}    = "VEDirect_Get";
+  $hash->{ReadFn}   = "VEDirect_Read";
+  $hash->{ReadyFn}  = "VEDirect_Ready"; 
+  $hash->{AttrList} = "disable LogHistoryToFile ". $readingFnAttributes;
+  $hash->{helper}{BUFFER} = "";  
+  $hash->{helper}{tmpData} = {};
+}
 ##################################################################################################################################################
 # Define
 ##################################################################################################################################################
-
+# called when a new definition is created (by hand or from configuration read on FHEM startup)
 sub VEDirect_Define($$)
 {
   my ( $hash, $def ) = @_;
@@ -572,26 +839,15 @@ sub VEDirect_Define($$)
   {
     return "wrong syntax: [DeviceType] must be 'BMV', 'MPPT' or 'Inverter'";
   }; 
-  my $tmpSets = "";
-  my $tmpGets = ""; 
 
-  foreach my $key (sort keys %{ $Register{ $type } })
-    {
-      $tmpGets .= $Register{ $type }->{ $key }->{'getValues'}." " if($Register{ $type }->{ $key }->{'getValues'} ne "-");
-      $tmpSets .= $Register{ $type }->{ $key }->{'setValues'}." " if($Register{ $type }->{ $key }->{'setValues'} ne "-");
-    }
-    Log3 $name, 2, "VEDirect ($name) - GET-Values fuer $type gesetzt: $tmpGets";
-    Log3 $name, 2, "VEDirect ($name) - SET-Values fuer $type gesetzt: $tmpSets";
-    $tmpGets .= "ConfigAll:noArg"." ";                   ## general Configuration request
-    $tmpGets .= "History_all:noArg"." " if ($type eq "MPPT"); ##only MPPT
-    $tmpSets .= "Restart:noArg"; #Restart command
-    
-    Log3 $name, 5, "$name - SET/GET-Values fuer $type gesetzt";
-    $hash->{helper}{setusage} =" ".$tmpSets;
-    $hash->{helper}{getusage} =" ".$tmpGets;
+  $hash->{helper}{setusage} = $bmvSets if $type eq "BMV";       
+  $hash->{helper}{getusage} = $bmvGets if $type eq "BMV";
   
-  $tmpSets = "";
-  $tmpGets = "";
+  $hash->{helper}{setusage} = $MPPTSets if $type eq "MPPT";
+  $hash->{helper}{getusage} = $MPPTGets if $type eq "MPPT";
+
+  $hash->{helper}{setusage} = $InverterSets if $type eq "Inverter";
+  $hash->{helper}{getusage} = $InverterGets if $type eq "Inverter";
   $hash->{DeviceName} = $dev;
   $hash->{helper}{BUFFER} = "";
   #$hash->{helper}{updatetime} = "-";  
@@ -601,318 +857,81 @@ sub VEDirect_Define($$)
   #InternalTimer(gettimeofday() + 2, "VEDirect_PollShort", $hash, 0);
   return $ret; 
 }
-
 ##################################################################################################################################################
-# 
+# Define
 ##################################################################################################################################################
-sub VEDirect_Undef($$)    #
-{                     #
-  my ( $hash, $arg ) = @_;       #
-  DevIo_CloseDev($hash);         #
-  RemoveInternalTimer($hash);    #
-  return undef;                  #
-}    #
-
-##################################################################################################################################################
-# 
-##################################################################################################################################################
-sub VEDirect_Attr($$$$)
-{
-  my ( $cmd, $name, $attrName, $attrValue ) = @_;
-  my $hash = $defs{$name};  
-  # $cmd  - Vorgangsart - kann die Werte "del" (l?schen) oder "set" (setzen) annehmen
-  # $name - Ger?tename
-  # $attrName/$attrValue sind Attribut-Name und Attribut-Wert
-    
-  if ($cmd eq "set") 
-  {
-    if ($attrName eq "UpdateTime_s")
-    {
-      if ($attrValue < 1 || $attrValue >= 31) 
-      {
-        Log3 $name, 5, "VEDirect ($name) - Invalid attr $name $attrName $attrValue";
-        return "Invalid value for $attrName: $attrValue";
+sub VEDirect_Attr(@) {
+  my ($cmd,$name,$attr_name,$attr_value) = @_;
+  if($cmd eq "set") {
+        if($attr_name eq "formal") {
+      if($attr_value !~ /^yes|no$/) {
+          my $err = "Invalid argument $attr_value to $attr_name. Must be yes or no.";
+          Log 3, "Hello: ".$err;
+          return $err;
       }
-      else  {$hash->{helper}{updatetime} = "-";}
+    } else {
+        return "Unknown attr $attr_name";
     }
-    if ($attrName eq "LogHistoryToFile")
+  }
+  if ($attr_name eq "LogHistoryToFile")
     {
-      if ($attrValue eq "") 
+      if ($attr_value ne "") 
       {
-        Log3 $name, 5, "VEDirect ($name) - Invalid attr $name $attrName $attrValue";
-        return "Invalid value for $attrName: $attrValue --> Please enter a /path/Filename.log";
-      }
-      else  
-      {
-        my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
-        my @time = localtime();
-        my $logtime = (23*3600)+(0*60)+0;
-        my $secofday = ($hour * 3600) + ($min * 60) + $sec;
-        if ($logtime > $secofday)
-        {
-         InternalTimer(gettimeofday() + ($logtime - $secofday), "VEDirect_LogHistory", $hash, 0); 
+        if (-e $attr_value) 
+        { 
+            Log3 $name, 5, "VEDirect ($name) - Datei existiert";
+            if (-w $attr_value) 
+            {
+              Log3 $name, 5, "VEDirect ($name) - Schreibrecht vorhanden";
+            } 
         }
         else
         {
-          InternalTimer(gettimeofday() + (86400 -$secofday +  $logtime), "VEDirect_LogHistory", $hash, 0);
-        }
-        
+          open(my $fh, "<<", $attr_value) or die "Can't open < $attr_value: $!";
+          #open $fh $attr_value or die, "could not create $attr_value: $!";
+          close $fh;
+        }  
       }
     }
-  }
-  if ($cmd eq "del") 
-  {
-    if ($attrName eq "UpdateTime_s")
+    else
     {
-      $hash->{helper}{updatetime} = "-"; ##$shortPollTime_s = 10;
+      my $err = "Invalid argument $attr_value to $attr_name. Must be a path and filename";
+      Log3 $name, 5, "VEDirect ($name) - Invalid argument $attr_value to $attr_name. Must be a path and filename";
+      return $err;
     }
-  }
+    
+  
   return undef;
 }
 ##################################################################################################################################################
-# 
+# Define
 ##################################################################################################################################################
-sub VEDirect_Set($$@)
+# called when definition is undefined 
+# (config reload, shutdown or delete of definition)
+sub VEDirect_Undef($$)
 {
-    my ($hash, $name, $cmd, @args) = @_;
-    my $error;
-    my $type = $hash->{DeviceType} ;
-    my $usage = "unknown argument $cmd, choose one of $hash->{helper}{setusage}"; 
-    return $usage if(($cmd eq "" || $cmd eq "?")); 
-    Log3 $name, 4, "VEDirect ($name) - Set command: $cmd Arguments $args[0]";
- #------------------------------------------------------------------------
- # Register zum cmd suchen
-    my $reg = "-";
-    my $debugarg = $args[0];   
-    my @keylist = keys %{ $Register{ $type } };
-    Log3 $name, 4, "VEDirect ($name) - Set command --> Keylist: @keylist";
-    for my $key (@keylist)
-    {
-      if (index($Register{ $type }->{ $key }->{'setValues'}, $cmd) != -1)
-      {
-          $reg = $key;
-          last;  
-      }
-    }
- ##------------------------------------------------------------------------
- ## Informationen aus dem %Register zum Befehl holen und verarbeiten
-    if ($reg ne "-")
-      {
-        Log3 $name, 5, "VEDirect ($name) - Set command: $cmd Arguments $args[0] ---> Register $reg identified";
-        ##$reg = substr($reg, 2, 4);     # "0x" entfernen
-        ##Befehlsaufbau: ":8"(Set-Befehl) plus "00" Flags plus "Datavalue"
-        ##Command 8 ("Set") Returns a set response with the requested data or error is returned.
-        ##uint16 the id of the value to set
-        ##uint8 flags, should be set to zero
-        ##type depends on id value
-        my $command = ":8".substr($reg, 4, 2).substr($reg, 2, 2)."00";
-        ##wenn args[0] eine nummer ist
-        if ( $args[0] =~ /^[0-9,.]+.+/ ) 
-        {
-          $args[0] =~ /^[0-9,.]+$/;
-          Log3 $name, 5, "VEDirect ($name) - Set pr?fe $args[0] auf Min- und Max-Werte";
-          ##Auf min und max-Werte pr?fen
-          if ($Register{ $type }->{ $reg }->{'min'} ne "-" && $Register{ $type }->{ $reg }->{'min'} ne "")
-          {
-             $args[0] = $Register{ $type }->{ $reg }->{'min'} if ($args[0] < $Register{ $type }->{ $reg }->{'min'});  
-          }
-          if ($Register{ $type }->{ $reg }->{'max'} ne "-" && $Register{ $type }->{ $reg }->{'max'} ne "")
-          {
-             $args[0] = $Register{ $type }->{ $reg }->{'max'} if ($args[0] > $Register{ $type }->{ $reg }->{'max'});  
-          }
-
-          $args[0] = $args[0] * ( 1 / ( $Register{ $type }->{ $reg }->{'Skalierung'} ));    
-          Log3 $name, 5, "VEDirect ($name) - Set skalierter Setzwert: $args[0] ";
-          $args[0] = sprintf("%02X", $args[0]);
-          while(length($args[0]) < $Register{ $type }->{ $reg }->{'Payloadnibbles'})   
-            {
-              $args[0] = "0".$args[0];
-            }
-          $args[0] = substr($args[0],2,2).substr($args[0],0,2) if(length($args[0]) == 4); ##1234 --> 3412
-          $args[0] = substr($args[0],6,2).substr($args[0],4,2).substr($args[0],2,2).substr($args[0],0,2) if(length($args[0]) == 8); ##01234567 --> 67452301 
-        }
-        else 
-        {
-          ##wenn args[0] keine nummer enth?lt
-          my@setItems = split(",",substr($Register{ $type }->{ $reg }->{'setValues'}, index($Register{ $type }->{ $reg }->{'setValues'},":")));
-          $setItems[0] = substr($setItems[0],1);
-          my @setValues = split(':',$Register{ $type }->{ $reg }->{'spezialSetGet'});
-          for my $v (0 .. $#setItems)
-            {
-              Log3 $name, 5, "VEDirect ($name) - SET: setItems: $setItems[$v] --> InputValue: $args[0]";
-              if ($setItems[$v] eq $args[0])
-              {
-                $args[0] = $setValues[$v];
-                $args[0] = "0".$args[0] if (length($args[0])==1 ||length($args[0])==3);
-                last;
-              }
-            } 
-        }
-        $command .= $args[0];
-        $command .= VEDirect_ChecksumHEX(0x55,$command);
-        Log3 $name, 5, "VEDirect ($name) - VEDirect_Set command $cmd $debugarg - sending --> $command";
-        DevIo_SimpleWrite($hash, $command, 2, 1) ;
-    }    
-    elsif($reg eq "-" && $cmd eq "Restart")
-    {
-      DevIo_SimpleWrite($hash, ":64F", 2, 1) ;
-    }     
-    else
-    {
-        return $usage;
-    }  
+  my ($hash, $name) = @_;
+ 
+  # close the connection 
+  DevIo_CloseDev($hash);
   
-  
-  }
-
-##################################################################################################################################################
-# Get functions - !!!!!!!!!!!!!!!TBD!!!!!!!!!!!!!!!!
-##################################################################################################################################################
-sub VEDirect_Get($$@)
-{
-    my ($hash, $name, $cmd, @args) = @_;
-    my $usage = "unknown argument $cmd, choose one of $hash->{helper}{getusage}";
-    my $ret = "";
-    my $type = $hash->{DeviceType} ; 
-#------------------------------------------------------------------------
- # Register zum cmd suchen
-    my $key = ""; 
-    my $reg = "-"; 
-    my $debugarg = $args[0]; 
- ##------------------------------------------------------------------------
- ## Informationen aus dem %Register zum Befehl holen und verarbeiten
-    if ($cmd eq "History_all" && $type eq "MPPT")
-    { 
-       ## MPPT special Gets
-       Log3 $name, 4, "VEDirect ($name) - get History_all ++++++++++++++++++++++++++++++++++++";  
-       my @c;
-       for my $c (0 ..29)
-       {
-        $reg = ":7".sprintf("%02X", (0x50 + $c))."1000";
-        $reg .= VEDirect_ChecksumHEX(0x55,$reg);
-        Log3 $name, 4, "VEDirect ($name) - get command $cmd $debugarg - sending --> $reg";  
-        DevIo_SimpleWrite($hash, $reg, 2, 1) ; 
-        push @c,$reg;
-        Time::HiRes::sleep(0.2);
-        my $resp = DevIo_SimpleRead($hash) ;
-        
-        $hash->{helper}{BUFFER} .= $resp;
-        my $hexMsg ;
-        if($resp =~ /(\:[0-9A-F][0-9A-F]++)\n/)
-         {$hexMsg = $1;
-          my $parse = VEDirect_ParseHEX($hash, $hexMsg) if(defined($hexMsg));
-          push @c,$parse;
-          Log3 $name, 4, "VEDirect $name Get: received >$parse<"; 
-         }
-       }
-     return join("\n",@c)
-    }
-    elsif ($cmd eq "ConfigAll")
-    {
-      Log3 $name, 4, "VEDirect ($name) - get ConfigAll ++++++++++++++++++++++++++++++++++++";
-      foreach my $key (keys %{ $Register{ $type } })
-        {
-          if ($Register{ $type }->{ $key }->{"getConfigAll"} == 1)
-          {
-            ##Befehlsaufbau: ":7"(Get-Befehl) plus "00" Flags plus checksum
-            ##Command 7 ("Get") Returns a get response with the requested data or error is returned.
-            ##uint16 the id of the value to set
-            ##uint8 flags, should be set to zero         0x1234
-            my $command = ":7".substr($key, -2, 2).substr($key, 2, 2)."00";
-            $command .= VEDirect_ChecksumHEX(0x55,$command);
-            DevIo_SimpleWrite($hash, $command, 2, 1) ; 
-            Log3 $name, 4, "VEDirect ($name) - get command $cmd $debugarg - sending --> $command";
-            Time::HiRes::sleep(0.1); 
-            my $resp = DevIo_SimpleRead($hash) ;
-            my $readAnswer = 0;
-            if ($readAnswer == 1)
-            {
-              $hash->{helper}{BUFFER} .= $resp;
-              my $hexMsg ;
-              if($resp =~ /(\:[0-9A-F][0-9A-F]++)\n/)
-               {$hexMsg = $1;
-                return VEDirect_ParseHEX($hash, $hexMsg) if(defined($hexMsg));
-               }
-            }
-          }
-          
-        }
-    }
-    else
-    { 
-      my @keylist = keys %{ $Register{ $type } };
-      Log3 $name, 5, "VEDirect ($name) - VEDirect_Get Keylist: @keylist";
-      for my $key (@keylist)
-      {
-        if (index($Register{ $type }->{ $key }->{"getValues"}, $cmd) != -1)
-        {
-            $reg = $key;
-            last;  
-        }
-      }
-      ##------------------------------------------------------------------------
-      if ($reg ne "-")
-      {
-        Log3 $name, 4, "VEDirect ($name) - Get command: $cmd  ---> Register $reg identified";    
-        ##Befehlsaufbau: ":7"(Get-Befehl) plus "00" Flags plus checksum
-        ##Command 7 ("Get") Returns a get response with the requested data or error is returned.
-        ##uint16 the id of the value to set
-        ##uint8 flags, should be set to zero
-        my $command = ":7".substr($reg, -2, 2).substr($reg, 2, 2)."00";
-        if ($Register{ $type }->{ $key }->{"getValues"} ne "-")
-        {
-          $command .= VEDirect_ChecksumHEX(0x55,$command); 
-          Log3 $name, 4, "VEDirect ($name) - get command $cmd $debugarg - sending --> $command";
-          DevIo_SimpleWrite($hash, $command, 2, 1) ;  
-          ##++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-          my $buf = "";
-          
-          ##Log3 $name, 5, "VEDirect ($name) - Read Received DATA --> /n".$buf;
-            #**********************************************************************************************************
-            #pruefen, ob Hex-Nachrichten enthalten sind
-           my $cntWhile = 0;    
-           while (index($buf,":") != -1 && $cntWhile <= 50)         
-            { 
-              ##return "" if ( !defined($buf) ); #keine Daten im Buffer enthalten -> abbruch 
-              $buf = DevIo_SimpleRead($hash) ;
-              $buf = $hash->{helper}{BUFFER}.$buf ;
-              $cntWhile +=1;
-              my $hexMsg = "" ;
-              if($buf =~ /(\:[0-9A-F][0-9A-F]++\n)/)
-              {
-               $hexMsg = $1;
-               $buf =~ s/$hexMsg//;  #hex-Nachricht entfernen
-               Log3 $name, 5, "VEDirect ($name) - Read: cutting Hex-MSG: >$hexMsg<";
-               return VEDirect_ParseHEX($hash, $hexMsg);  #ParseHex-funktion aufrufen (direkte Auswerung der Daten) 
-               last;
-              } 
-            } 
-          
-        }
-      }
-      else
-      {
-        return $usage;
-      }
-    }  
+  return undef;
 }
 ##################################################################################################################################################
-# 
+# Ready
 ##################################################################################################################################################
-
-sub VEDirect_PollShort($)
+# called repeatedly if device disappeared
+sub VEDirect_Ready($)
 {
-    ##shortpoll -> regelm??ig einen Ping senden das senden von HEX-Nachrichten der Ger?te aufrecht zu halten
-    my $hash = shift;
-    RemoveInternalTimer($hash);    #delete all old timer
-    my $name = $hash->{NAME};
-    my $key = "";
-    my $type = $hash->{DeviceType} ; 
-    my $command = ":154";
-      DevIo_SimpleWrite($hash, $command, 2, 1) ;    
-      InternalTimer(gettimeofday() + 10, "VEDirect_PollShort", $hash, 0);
+  my ($hash) = @_;
+  
+  # try to reopen the connection in case the connection is lost
+  return DevIo_OpenDev($hash, 1, "VEDirect_Init"); 
 }
-
+##################################################################################################################################################
+# Define
+##################################################################################################################################################
+# called when data was received
 ##################################################################################################################################################
 # Read-Funktion
 # 1. Daten aus dem Buffer holen
@@ -930,14 +949,13 @@ sub VEDirect_Read($$$)
   my $hexMsg;   #Variable fuer HEX-Nachrichten
   my $cntChecksum = 0; 
   my $type = $hash->{DeviceType} ; 
-  my @tmpData;
   ###### Daten der seriellen Schnittstelle holen 
   my $buf = DevIo_SimpleRead($hash) ;
   return "" if ( !defined($buf) ); #keine Daten im Buffer enthalten -> abbruch 
   $buf = $hash->{helper}{BUFFER}.$buf ;
-  ##Log3 $name, 5, "VEDirect ($name) - Read Received DATA --> /n".$buf;
-    #**********************************************************************************************************
-    #pruefen, ob Hex-Nachrichten enthalten sind
+  Log3 $name, 5, "VEDirect ($name) - Read Received DATA --> ".$buf;
+  #**********************************************************************************************************
+  #pruefen, ob Hex-Nachrichten enthalten sind
    my $cntWhile = 0;    
    while (index($buf,":") != -1 && $cntWhile <= 50)         
     { 
@@ -947,44 +965,14 @@ sub VEDirect_Read($$$)
       {
        $hexMsg = $1;
        $buf =~ s/$hexMsg//;  #hex-Nachricht entfernen
-       Log3 $name, 5, "VEDirect ($name) - Read: cutting Hex-MSG: >$hexMsg<";
+       Log3 $name, 3, "VEDirect ($name) - Read: cutting Hex-MSG: >$hexMsg<";
        VEDirect_ParseHEX($hash, $hexMsg);  #ParseHex-funktion aufrufen (direkte Auswerung der Daten)
       } 
-    } 
-    #----------------------------------------------------------------------------------------------------------------
-    #Text-Nachrichten Auswerten
-#   if(defined($attr{$name}) && defined($attr{$name}{"UpdateTime_s"}))
-#   {
-#     Log3 $name, 3, "VEDirect ($name) - Read: Updatetime: $hash->{helper}{updatetime}";
-#     if($hash->{helper}{updatetime} ne "-")
-#     {
-#       #pr?fen, ob die aktuelle zeit gr??er als die mindestzeit ist
-#       #$hash->{helper}{updatetime} = gettimeofday() + $attr{$name}{"UpdateTime_s"} if(gettimeofday() < ($hash->{helper}{updatetime} - $attr{$name}{"UpdateTime_s"})); 
-#       my @tod = gettimeofday();
-#       Log3 $name, 3, "VEDirect ($name) - Read: Updatetime: $hash->{helper}{updatetime} --> timeofday: $tod[0]";
-#       if($tod[0] < $hash->{helper}{updatetime}) 
-#       {
-#         $hash->{helper}{BUFFER} = "";
-#         Log3 $name, 3, "VEDirect ($name) - Read: Buffer cleared";
-#         return "";
-#       }
-#     }
-#     else
-#     {
-#       #neue mindestzeit setzen
-#       my @tod = gettimeofday();
-#       $hash->{helper}{updatetime} = $tod[0] + $attr{$name}{"UpdateTime_s"};
-#       #funktion verlassen
-#       $hash->{helper}{BUFFER} = "";
-#       Log3 $name, 2, "VEDirect ($name) - Read: Buffer cleared";
-#       return "";
-#     }
-#   }
-   
-   
-   #Pr?fen auf Text-Felder und Checksum
+    }  
+   #**********************************************************************************************************
+   #Prüfen auf Text-Felder und Checksum
 
-   Log3 $name, 4, "VEDirect ($name) - Read: Actual Buffer: >$buf<";
+   Log3 $name, 5, "VEDirect ($name) - Read: Actual Buffer: >$buf<";
    my ($start1, $start2);
    if(index($startBlock{$type},"|") != -1)
    {
@@ -1007,6 +995,8 @@ sub VEDirect_Read($$$)
         {
           $outstr .= "\r\n".$txtMsg;
           Log3 $name, 5, "VEDirect ($name) - Read: Checksum found - Block completed";
+          readingsSingleUpdate($hash,"SerialTextInput",$outstr,0) if (index($buf,$start1) != -1);
+          readingsSingleUpdate($hash,"SerialTextInput2",$outstr,0) if (index($buf,$start2) != -1 && $start1 ne $start2);
           last;
         }
         elsif($txtMsg =~ /([A-Z]+.*[0-9]{0,2}\t.+)/) 
@@ -1018,17 +1008,17 @@ sub VEDirect_Read($$$)
       }
      #$buf = s/ eval($outstr) //gm;
      my $chk = VEDirect_ChecksumTXT($outstr);
-     Log3 $name, 4, "VEDirect ($name) - Read: Checksum-Testergebnis: $chk";
+     Log3 $name, 5, "VEDirect ($name) - Read: Checksum-Testergebnis: $chk";
      if($chk == 0)
      {
        @buffer = split("\r\n",$outstr);
-       Log3 $name, 4, "VEDirect ($name) - Read: Checksum ok --> start parsing <<$outstr>>";
+       Log3 $name, 5, "VEDirect ($name) - Read: Checksum ok --> start parsing ";
        VEDirect_ParseTXT($hash, @buffer);
        @buffer = ();
      }
      else
      {
-       Log3 $name, 4, "VEDirect ($name) - Read: Checksum not ok --> CLR block in Buffer";
+       Log3 $name, 5, "VEDirect ($name) - Read: Checksum not ok --> CLR block in Buffer";
        @buffer = ();
      }
      $hash->{helper}{BUFFER} = "";#$buf if(defined($buf)); 
@@ -1040,11 +1030,24 @@ sub VEDirect_Read($$$)
      $hash->{helper}{BUFFER} = $buf;
    }
    
-    $hash->{helper}{BUFFER} = "" if (length($hash->{helper}{BUFFER}) > 2000);   
-}     
-
+    $hash->{helper}{BUFFER} = "" if (length($hash->{helper}{BUFFER}) > 800); 
+    #$teil=substr($original,startpos,anzahlzeichen,ersetzungszeichen);
+    #my $minu = substr(ReadingsTimestamp($name,"Product_ID",""),length(ReadingsTimestamp($name,"Product_ID",""))-4,1); #2020-10-20 23:06:17
+    #if(ReadingsVal($name,"lastHexCmd",0) != $minu)
+    #{
+    #  my $command = ":154";
+    #  DevIo_SimpleWrite($hash, $command, 2, 1) ;
+    #  readingsSingleUpdate($hash, "lastHexCmd", $minu, 1);
+    #}
+    #else
+    #{
+    #  my $HexCnt = $minu + 1;
+    #  readingsSingleUpdate($hash, "lastHexCmd", $HexCnt, 1);
+    #}
+    
+}
 ##################################################################################################################################################
-# 
+# ParseTXT
 ##################################################################################################################################################
 sub VEDirect_ParseTXT($@)
 {
@@ -1052,174 +1055,113 @@ sub VEDirect_ParseTXT($@)
     my $name = $hash->{NAME}; 
     my $type = $hash->{DeviceType} ;
     my $ChecksumValue = 1;
-
-    Log3 $name, 4, "VEDirect ($name) - ParseTXT: Checksumme ok --> Start Auswertung";
-    readingsBeginUpdate($hash);
-    readingsBulkUpdate($hash,"SerialTextInput",join("\n",@e));
+    my $tmp = join("\r\n",@e);
+    Log3 $name, 5, "VEDirect ($name) - ParseTXT: Checksumme ok --> Start Auswertung für $tmp";  
+    readingsBeginUpdate($hash); 
+    
     for my $i (0 .. int(@e))
     {
-      #Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- ";
-      
-      my $cnt = int(@e);
-      Log3 $name, 5, "VEDirect ($name) - ParseTXT: Schleife $i von $cnt";
       next if(index($e[$i],"\t") == -1);
-      my @raw = split("\t",$e[$i]); 
-      next if($raw[0] eq "Checksum");
-      next if($raw[0] eq "");
-      $raw[0] =~ s/\r\n//g;
-      if (defined($TextMapping{ $raw[0] } )) 
+      my @raw = split("\t",$e[$i]);
+      if (defined $Text{$raw[0]}) 
       {
-        if($raw[0] eq "WARN")
+       my $ReadingName = $Text{$raw[0]}->{ 'ReadingName' };
+       my $Unit = $Text{$raw[0]}->{ 'Unit' };
+       my $Scale = $Text{$raw[0]}->{ 'Scale' };
+       my $Rout = $raw[1]; 
+       $Rout *= $Scale if($Scale ne "-" && $Scale != "1" ); 
+       $Rout .= " ".$Unit if($Unit ne "-" && $Unit ne "ACA" && $Unit ne "RS" && $Unit ne "AR" && $Unit ne "OR" && $Unit ne "WR" && $Unit ne "TOM" && $Unit ne "ERR" && $Unit ne "CS" && $Unit ne "MODE");
+       
+       if($Unit eq "CS")
+       {
+        #State_of_operation 
+        $Rout = $CS{$Rout} if (defined $CS{$Rout});
+       }
+       elsif($Unit eq "AR" || $Unit eq "WR")
+       {
+        #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        #Alarm_reason
+        my $tmpVal = $Rout;
+        $Rout = "";
+        my $bin = sprintf ("%.16b", $tmpVal); 
+        Log3 $name, 5, "VEDirect ($name) - ParseTXT: AR: $tmpVal --> bin: $bin";
+        my @bits = reverse split(//, $bin);  #my @bits = reverse split(//, $bin) so that $bits[0] ends up being the LSB
+        if($raw[1] eq "0")
+          {$Rout= $ARtext{$raw[1]}}
+        else
         {
-          Log3 $name, 5, "VEDirect ($name) - ParseTXT: SelCase Warn";
-          my $Reg =$TextMapping{ $raw[0] }->{ $type }->{'Register'};
-          my $Reading = $Register{ $type }->{ $Reg }->{'ReadingName'};
-          Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register $Reg -->$Reading --> $raw[1] ";
-          readingsBulkUpdateIfChanged($hash,$Reading,$raw[1]);
-        }
-        elsif($raw[0] eq "AR")
-        {
-          Log3 $name, 5, "VEDirect ($name) - ParseTXT: SelCase AR";
-          my $Reading;
-          if ($TextMapping{ $raw[0] }->{ $type }->{'Register'} eq "-")
+          my $cntOnes=0;
+          for my $b (0 .. int(@bits))
+          {$cntOnes+=1 if($bits[$b] == 1); }
+          for my $b (0 .. int(@bits))
           {
-            $Reading = $TextMapping{ $raw[0] }->{ $type }->{'ReName'};
-          }
-          else
-          {
-            my $Reading = $Register{ $type }->{ $TextMapping{ $raw[0] }->{ $type }->{'Register'} }->{'ReadingName'};
+            my $arVal = 2**$b;
+            Log3 $name, 5, "VEDirect ($name) - ParseTXT: $b --> bits(b): $bits[$b] arVal: $arVal";
+            $Rout .= $ARtext{$arVal} if (defined $ARtext{$arVal} && $bits[$b] == 1);
+            $Rout .= ", " if ($cntOnes >1);
+            $cntOnes-=1 if ($cntOnes >1);
+            #readingsBulkUpdate($hash,$ReadingName,$Rout);
           } 
-          
-          Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register >--< --> $Reading --> $raw[1] ";
-          $raw[1] = $ARtext{$raw[1]} if (defined($ARtext{$raw[1]}));
-          readingsBulkUpdateIfChanged($hash,$Reading,$raw[1]);
         }
-        elsif($raw[0] eq "MPPT")
+        #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+       }
+       elsif($Unit eq "ERR")
+       {
+        #Error_code
+        $Rout = $ERR{$Rout} if (defined $ERR{$Rout});
+        readingsBulkUpdate($hash,$ReadingName,$Rout);
+       }
+       elsif($Unit eq "OR")
+       {
+         #Off_reason 
+         $Rout = $OR{$Rout} if (defined $OR{$Rout});
+         readingsBulkUpdate($hash,$ReadingName,$Rout);
+       }
+       elsif($Unit eq "MPPT")
+       {
+        #MPPT Tracker_operation_mode 
+        $Rout = $MPPT{$Rout} if (defined $MPPT{$Rout});
+       }
+       elsif($Unit eq "MODE")
+       {
+        #operation_mode
+        $Rout = $MODE{$Rout} if (defined $MODE{$Rout});
+       }  
+       elsif($raw[0] eq "TTG")
+       {
+        if($raw[1] != "-1")
         {
-          Log3 $name, 5, "VEDirect ($name) - ParseTXT: SelCase MPPT";
-          my $Reading = $TextMapping{ $raw[0] }->{ $type }->{'ReName'};
-          
-          my $Rvalue;
-          $Rvalue = "Off" if($raw[1] == 0);
-          $Rvalue = "Voltage_or_current_limited" if($raw[1] == 1);
-          $Rvalue = "Active" if($raw[1] == 2);
-          readingsBulkUpdateIfChanged($hash,$Reading,$Rvalue);
-          Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register - --> $Reading --> $Rvalue ";
+          $Rout = sprintf "%02d Tage %02d Stunden %02d Minuten", (gmtime($raw[1]*60))[7,2,1];
         }
-        elsif($raw[0] eq "OR")
+        elsif($raw[1] >= "14399")
         {
-          Log3 $name, 5, "VEDirect ($name) - ParseTXT: SelCase OR(off-reason)";
-          my $Reading = $TextMapping{ $raw[0] }->{ $type }->{'ReName'};
-          
-          my $Rvalue;
-          $Rvalue = "Device is active" if($raw[1] eq "0x00000000");
-          $Rvalue = "No input power" if($raw[1] eq "0x00000001");
-          $Rvalue = "Switched off(power switch)" if($raw[1] eq "0x00000002");
-          $Rvalue = "Switched off(device mode register)" if($raw[1] eq "0x00000004");
-          $Rvalue = "Remote input" if($raw[1] eq "0x00000008");
-          $Rvalue = "Protection active" if($raw[1] eq "0x00000010");
-          $Rvalue = "Paygo" if($raw[1] eq "0x00000020");
-          $Rvalue = "BMS" if($raw[1] eq "0x00000040");
-          $Rvalue = "Engine shutdown detection" if($raw[1] eq "0x00000080");
-          $Rvalue = "Analysing input voltage" if($raw[1] eq "0x00000100");
-          readingsBulkUpdateIfChanged($hash,$Reading,$Rvalue);
-          Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register - --> $Reading --> $Rvalue ";
-        }
-        elsif($raw[0] eq "PID")
-        {
-          Log3 $name, 5, "VEDirect ($name) - ParseTXT: SelCase PID1";
-          my $Reg =$TextMapping{ $raw[0] }->{ $type }->{'Register'};
-          my $Reading = $Register{ $type }->{ $Reg }->{'ReadingName'}; 
-          $raw[1] =~ s{^\s+|\s+$}{}g ;
-          if($PrID{$raw[1]} ne "")
-          {
-           Log3 $name, 5, "VEDirect ($name) - ParseTXT: SelCase PID2";
-           my $Rvalue = $PrID{ $raw[1] }; 
-           Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register $Reg -->$Reading --> $Rvalue ";
-           readingsBulkUpdateIfChanged($hash,$Reading,$Rvalue);
-          }
-          else
-          {
-            Log3 $name, 5, "VEDirect ($name) - ParseTXT: SelCase PID3";
-            Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register $Reg -->$Reading --> $raw[1] ";
-            readingsBulkUpdateIfChanged($hash,$Reading,$raw[1]);
-          }
-        }
-        elsif($raw[0] eq "FW")
-        {
-          Log3 $name, 5, "VEDirect ($name) - ParseTXT: SelCase FW";
-          my $Reading = $TextMapping{ $raw[0] }->{ $type }->{'ReName'};
-          my $Rvalue = substr($raw[1],1,1).".".substr($raw[1],2);
-          Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register <--> -->$Reading --> $Rvalue ";
-          readingsBulkUpdateIfChanged($hash,$Reading,$Rvalue);
-        }
-        elsif ($TextMapping{$raw[0]}->{$type}->{'Register'} ne "-" && $raw[0] ne "PID" && $raw[0] ne "WARN" && $raw[0] ne "AR" && $raw[0] ne "FW")
-        {
-          Log3 $name, 5, "VEDirect ($name) - ParseTXT: SelCase Reg ne -";
-          #Register bekannt --> Auswerten und Reading schreiben
-          my $Reg = $TextMapping{ $raw[0] }->{ $type }->{'Register'}; 
-          my $scale = $TextMapping{ $raw[0] }->{ $type }->{'scale'};
-          my $Reading = $Register{ $type }->{ $Reg }->{'ReadingName'};
-          my $Rvalue = $raw[1];
-          #Keine Spezial-Se/getwerte vorhanden
-          if ($Register{ $type }->{ $Reg }->{'spezialSetGet'} eq "-")
-          {
-            $Rvalue = $Rvalue * $scale if($scale != 0);
-            $Rvalue .= " ".$Register{ $type }->{ $Reg }->{'Einheit'};
-          }
-          #Spezial-Se/getwerte vorhanden
-          else
-          {
-            #0x0201'=>{"Bezeichnung"=>"Device_state", "ReadingName"=>"Charger_state", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", 
-            #"getValues"=>"Charger_state:not_charging,,fault,bulk,absorption,float,equalize,ess", "setValues"=>"-", "spezialSetGet"=>"0:1:2:3:4:5:7:9:252"},
-            my @setvalues; 
-            Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- setvalues: $Register{ $type }->{ $Reg }->{'setValues'}";
-            Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- getvalues: $Register{ $type }->{ $Reg }->{'getValues'}";
-            if($Register{ $type }->{ $Reg }->{'setValues'} ne "-")
-            {@setvalues = split(",",substr($Register{ $type }->{ $Reg }->{'setValues'}, index($Register{ $type }->{ $Reg }->{'setValues'},":")));
-             $setvalues[0] = substr($setvalues[0],1);}
-            elsif($Register{ $type }->{ $Reg }->{'getValues'} ne "-")
-            {@setvalues = split(",",substr($Register{ $type }->{ $Reg }->{'getValues'},index($Register{ $type }->{ $Reg }->{'getValues'},":")));
-             $setvalues[0] = substr($setvalues[0],1);} 
-            my @specialsetvalues = split(":", $Register{ $type }->{ $Reg }->{'spezialSetGet'}) ;
-            for my $v (0 .. $#specialsetvalues)
-            {
-              Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- spezialgetValue: $specialsetvalues[$v] --> InputValue: $Rvalue";
-              if ($specialsetvalues[$v] == $Rvalue)
-              {
-                $Rvalue = $setvalues[$v];
-                last;
-              }
-            }
-          }
-          #readingsBulkUpdateIfChanged($hash, $reading, $value);
-          Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register $Reg -->$Reading --> $Rvalue ";
-          readingsBulkUpdateIfChanged($hash,$Reading,$Rvalue);
+         $Rout = ">=".sprintf "%02d Tage %02d Stunden %02d Minuten", (gmtime($raw[1]*60))[7,2,1];
         }
         else
         {
-          #Register unbekannt --> Auswerten und ReadinNamen aus TexMapping nutzen   
-          my $scale = $TextMapping{ $raw[0] }->{ $type }->{'scale'};
-          my $Reading = $TextMapping{ $raw[0] }->{ $type }->{'ReName'};
-          my $Rvalue = $raw[1];
-          my $Einheit = $TextMapping{ $raw[0] }->{ $type }->{'Einheit'};
-          $Rvalue = $Rvalue * $scale if ($scale ne "0");
-          $Rvalue .= " ".$Einheit if defined($Einheit) ;
-          #readingsBulkUpdateIfChanged($hash, $reading, $value); 
-          Log3 $name, 5, "VEDirect ($name) - ParseTXT: Text --> $e[$i] <-- Updating Register unbekannt -->$Reading --> $Rvalue ";
-          readingsBulkUpdateIfChanged($hash,$Reading,$Rvalue) if($Reading ne "Checksum" && $Reading ne "-");
-        }  
-      }
-      else
-      {
-        Log3 $name, 5, "VEDirect ($name) - ParseTXT: Txt-Value <( $raw[0] )> unbekannt --> Wert: $raw[1]";
+         $Rout="unendlich";
+        }
+        
+       }
+       elsif($raw[0] eq "H9")
+       {
+          $Rout = sprintf "%02d Tage %02d Stunden %02d Minuten %02d Sekunden", (gmtime($raw[1]))[7,2,1,0];
+       }
+       elsif($raw[0] eq "FW")
+       {
+          $Rout = substr($raw[1],0,length($raw[1])-2).".".substr($raw[1],-2);
+          $Rout = substr($Rout,1) if(substr($Rout,0,1) eq "0");
+       }
+       Log3 $name, 5, "VEDirect ($name) - ParseTXT: Reading: $ReadingName |> Unit: $Unit |> Scale: $Scale |> Output: $Rout";
+       readingsBulkUpdateIfChanged($hash,$ReadingName,$Rout);
+       #readingsBulkUpdate($hash,$ReadingName,$Rout);
       }
     }
+
   readingsEndUpdate( $hash, 1 );  
   @e = ();
 
 }
-
 ##################################################################################################################################################
 # ParseHEX
 ##################################################################################################################################################
@@ -1233,26 +1175,26 @@ sub VEDirect_ParseHEX($$)
  my $checksum; # = substr($msg,-2,2);
 
 
- Log3 $name, 4, "VEDirect ($name) - ParseHex received $msg";       #:AD5ED009D05E7
- ##auf g?ltige Checksumme pr?fen
+ Log3 $name, 5, "VEDirect ($name) - ParseHex received $msg";       #:AD5ED009D05E7
+ ##auf gültige Checksumme prüfen
  if(substr($msg,0,2) eq ":A")
   {return undef if(VEDirect_ChecksumHEX(0x55,$msg) eq 0xD);}
  else
   {return undef if(VEDirect_ChecksumHEX(0x55,$msg) eq 0);} 
   
- Log3 $name, 4, "VEDirect ($name) - ParseHex Checksum ok in $msg";   
+ Log3 $name, 3, "VEDirect ($name) - ParseHex Checksum ok in $msg";   
  
  ##-----------------------------------------------------------------
- ##g?ltige Checksumm empfangen - Auswerten
+ ##gültige Checksumm empfangen - Auswerten
  my $response = substr($msg,1,1);
  my $registerNummer;
  my $flags = substr($msg,6,2);
-  my $payload; 
+ my $payload; 
  if(substr($msg,0,2) eq ":A")
   {
    #Async message
    $id = "0x".substr($msg,4,2).substr($msg,2,2);   #:A D7ED 00 0E00 79     --> Reg:EDD7 Flag:00, Value 000E  (Scalierung 0,1A , 4 Paylodnibbles)
-   Log3 $name, 5, "VEDirect ($name) - ParseHex: Receives Async Msg: $msg for RegisterID $id";
+   Log3 $name, 3, "VEDirect ($name) - ParseHex: Receives Async Msg: $msg for RegisterID $id";
     if ( defined ($Register{ $type }->{ $id }))
     { 
       
@@ -1261,7 +1203,7 @@ sub VEDirect_ParseHEX($$)
          my $Payloadnibbles = $Register{ $type }->{ $id }->{'Payloadnibbles'};
          if($Payloadnibbles >=30)
          {
-            Log3 $name, 4, "VEDirect ($name) - ParseHex: ReceiveHistory MSG";
+            Log3 $name, 5, "VEDirect ($name) - ParseHex: ReceiveHistory MSG";
             $payload = substr($msg,8,length($msg)-10);
             $payload =  VEDirect_ParseHistory($hash, $id, $payload);
             my $Hdate = POSIX::strftime("%Y%m%d",localtime(time+86400*$Register{ $type }->{ $id }->{'Skalierung'}));
@@ -1300,7 +1242,7 @@ sub VEDirect_ParseHEX($$)
           }
          
          readingsSingleUpdate($hash, $Register{ $type }->{ $id }->{'ReadingName'}, $payload." ".$Register{ $type }->{ $id }->{'Einheit'}, 1); 
-         Log3 $name, 4, "VEDirect ($name) - VEDirect_ParseHex Updated Reading $Register{ $type }->{ $id }->{'ReadingName'} with Value $payload";
+         Log3 $name, 5, "VEDirect ($name) - VEDirect_ParseHex Updated Reading $Register{ $type }->{ $id }->{'ReadingName'} with Value $payload";
       }
       else
       {
@@ -1312,6 +1254,7 @@ sub VEDirect_ParseHEX($$)
  elsif($response == "1")
   {
    #Done
+   Log3 $name, 3, "VEDirect ($name) - VEDirect_ParseHex received response Type 1";
   }
  elsif($response == "3")
   {
@@ -1344,7 +1287,7 @@ sub VEDirect_ParseHEX($$)
    #Nibble 6,7:Flag
    #Nibble 8 bis 8+laengePayload;Payload
     $id = "0x".substr($msg,4,2).substr($msg,2,2);
-     Log3 $name, 4, "VEDirect ($name) - ParseHex: Received set / get-answer for ID: $id";
+     Log3 $name, 3, "VEDirect ($name) - ParseHex: Received set / get-answer for ID: $id";
     if (defined $Register{ $type }->{ $id })
      { 
         if(defined($Register{ $type }->{ $id }->{'Payloadnibbles'}))
@@ -1356,6 +1299,13 @@ sub VEDirect_ParseHEX($$)
            {
             $payload =  VEDirect_ParseHistory($hash, $id, $payload);
             my $Hdate = POSIX::strftime("%Y%m%d",localtime(time+86400*$Register{ $type }->{ $id }->{'Skalierung'}));
+            if (defined(AttrVal($name, "LogHistoryToFile", undef)))
+            {
+              my $logFile = AttrVal($name, "LogHistoryToFile", undef);
+              open(my $fh, '>>', "$logFile") or die "Could not open file '$logFile' $!";
+              print $fh $Hdate." ".$payload."\n";
+              close $fh;
+            }
             readingsSingleUpdate($hash, "History_".$Hdate, $payload, 1);
             ##readingsSingleUpdate($hash, "H_".$Bezeichnung, $payload." ".$Einheit, 1);
            }
@@ -1391,20 +1341,16 @@ sub VEDirect_ParseHEX($$)
                     }
                   }
                 }
-              else
-                {
-                    
-                }
               if ($Register{ $type }->{ $id }->{'Einheit'} eq "-")
                 {
                   readingsSingleUpdate($hash, $Register{ $type }->{ $id }->{'ReadingName'}, $payload, 1);
-                  Log3 $name, 5, "VEDirect ($name) - ParseHEX: Setting Reading".$Register{ $type }->{ $id }->{'ReadingName'}."($id) to $payload.";## ".$Register{ $type }->{ $id }->{'Einheit'}";  
+                  #Log3 $name, 5, "VEDirect ($name) - ParseHEX: Setting Reading $Register{ $type }->{ $id }->{'ReadingName'} ($id) to $payload"; 
                   return $payload;        
                 }
               else
                 {
                   readingsSingleUpdate($hash, $Register{ $type }->{ $id }->{'ReadingName'}, $payload." ".$Register{ $type }->{ $id }->{'Einheit'}, 1); 
-                  Log3 $name, 5, "VEDirect ($name) - ParseHEX: Setting Reading".$Register{ $type }->{ $id }->{'ReadingName'}."($id) to $payload.";## ".$Register{ $type }->{ $id }->{'Einheit'}"; 
+                  #Log3 $name, 5, "VEDirect ($name) - ParseHEX: Setting Reading $Register{ $type }->{ $id }->{'ReadingName'} ($id) to $payload." ".$Register{ $type }->{ $id }->{'Einheit'}"; 
                   return $payload." ".$Register{ $type }->{ $id }->{'Einheit'};
                 }
            }
@@ -1422,6 +1368,42 @@ sub VEDirect_ParseHEX($$)
   }
   else{}
  return  $payload;
+}
+##################################################################################################################################################
+# ChecksumHEx
+##################################################################################################################################################
+sub VEDirect_ChecksumHEX($$)
+{
+  my ($startVal, $cmd) = @_;
+  $startVal = 0x55;
+  
+  for my $i (1 .. length($cmd))
+   {
+      my $val = 0; 
+      $val = hex(substr($cmd,$i,1)) if($i==1);
+      $val = hex(substr($cmd,$i,2)) if $i % 2 == 0;   
+      $startVal -= $val if( looks_like_number($val));
+      
+   } 
+   $startVal &= 0xFF;
+   return (sprintf("%02X", $startVal));;
+} 
+##################################################################################################################################################
+# ChecksumTXT
+################################################################################################################################################## 
+sub VEDirect_ChecksumTXT($)
+{
+  my $chkbuff = @_;
+  #my (@chk) = @_;
+  #my $chkbuff = join("\r\n",@chk);
+  my $chksum = 0;
+  for my $i (1 .. length($chkbuff))
+  {
+   $chksum += ord(substr($chkbuff,$i,1));     #string in Nummer verwandeln und aufaddieren
+  }
+  $chksum = $chksum % 256;    
+  #Log3 $name, 5, "VEDirect ($name) - ChecksumTXT: $chksum";
+  return $chksum;     
 }
 ##################################################################################################################################################
 #ParseHistory 
@@ -1548,183 +1530,244 @@ sub VEDirect_ParseHistory($$$)
  return $ret;
 }
 ##################################################################################################################################################
-# 
+# Set
 ##################################################################################################################################################
-sub VEDirect_Ready($)
+
+sub VEDirect_Set($$@)
 {
-  my ($hash) = @_;
-
-  return DevIo_OpenDev( $hash, 1, undef )
-    if ( $hash->{STATE} eq "disconnected" );
-
-  # This is relevant for windows/USB only
-  my $po = $hash->{USBDev};
-  my ( $BlockingFlags, $InBytes, $OutBytes, $ErrorFlags ) = $po->status;
-  return ( $InBytes > 0 );
-}
-
-##################################################################################################################################################
-# 
-##################################################################################################################################################
-sub VEDirect_ChecksumHEX($$)
-{
-  my ($startVal, $cmd) = @_;
-  $startVal = 0x55;
-  
-  for my $i (1 .. length($cmd))
-   {
-      my $val = 0; 
-      $val = hex(substr($cmd,$i,1)) if($i==1);
-      $val = hex(substr($cmd,$i,2)) if $i % 2 == 0;   
-      $startVal -= $val if( looks_like_number($val));
-      
-   } 
-   $startVal &= 0xFF;
-   return (sprintf("%02X", $startVal));;
-} 
-##################################################################################################################################################
-# 
-################################################################################################################################################## 
-sub VEDirect_ChecksumTXT($)
-{
-  my $chkbuff = @_;
-  #my (@chk) = @_;
-  #my $chkbuff = join("\r\n",@chk);
-  my $chksum = 0;
-  for my $i (1 .. length($chkbuff))
-  {
-   $chksum += ord(substr($chkbuff,$i,1));     #string in Nummer verwandeln und aufaddieren
-  }
-  $chksum = $chksum % 256;   
-  return $chksum;     
-}
-##################################################################################################################################################
-# 
-##################################################################################################################################################
-sub VEDirect_myInternalTimer($$$$$) {
-   my ($modifier, $tim, $callback, $hash, $waitIfInitNotDone) = @_;
-
-   my $mHash;
-   if ($modifier eq "") {
-      $mHash = $hash;
-   } else {
-      my $timerName = "$hash->{NAME}_$modifier";
-      if (exists  ($hash->{TIMER}{$timerName})) {
-          $mHash = $hash->{TIMER}{$timerName};
-      } else {
-          $mHash = { HASH=>$hash, NAME=>"$hash->{NAME}_$modifier", MODIFIER=>$modifier};
-          $hash->{TIMER}{$timerName} = $mHash;
-      }
-   }
-   InternalTimer($tim, $callback, $mHash, $waitIfInitNotDone);
-}
-##################################################################################################################################################
-# 
-##################################################################################################################################################
-sub VEDirect_myRemoveInternalTimer($$) {
-   my ($modifier, $hash) = @_;
-
-   my $timerName = "$hash->{NAME}_$modifier";
-   if ($modifier eq "") {
-      RemoveInternalTimer($hash);
-   } else {
-      my $myHash = $hash->{TIMER}{$timerName};
-      if (defined($myHash)) {
-         delete $hash->{TIMER}{$timerName};
-         RemoveInternalTimer($myHash);
-      }
-   }
-}
-##################################################################################################################################################
-# 
-##################################################################################################################################################          
-sub VEDirect_Shutdown($)
-{
-  my ($hash) = @_;
-
-  # Verbindung schlie?en
-  DevIo_CloseDev($hash);
-  return undef;
-}   
-##################################################################################################################################################
-# 
-##################################################################################################################################################
-sub VEDirect_LogHistory($)
-{
-    ##Log History Data to File -> regelm??ig einen Ping senden das senden von HEX-Nachrichten der Ger?te aufrecht zu halten
-    my $hash = shift;
-    RemoveInternalTimer($hash);    #delete all old timer
-    my $name = $hash->{NAME};
+    my ($hash, $name, $cmd, @args) = @_;
+    my $error;
     my $type = $hash->{DeviceType} ;
-    return if $type ne "MPPT"; 
-    my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
-    my $reg = ":7501000";
-    $reg .= VEDirect_ChecksumHEX(0x55,$reg);
-    Log3 $name, 5, "VEDirect ($name) - LogHistory get command $reg ";  
-    DevIo_SimpleWrite($hash, $reg, 2, 1) ; 
-    Time::HiRes::sleep(0.2);
-  my $Hdate = POSIX::strftime("%Y%m%d",localtime(time));
-    my $Data = ReadingsVal($name, "History_".$Hdate,"Reading nicht vorhanden");  
-    $year += 1900;
-    my $filename = '/mnt/ramdisk/History'.$year.'.log';
-    open(my $fh, '>>', $filename) or die "VEDirect ($name) - LogHistory: Could not open file '$filename' $!";
-    say $fh $Data;
-    close $fh; 
- 
-    
-    my $logtime = (23*3600)+(0*60)+0;
-    my $secofday = ($hour * 3600) + ($min * 60) + $sec;
-    if ($logtime > $secofday)
+    my $usage = "unknown argument $cmd, choose one of $hash->{helper}{setusage}"; 
+    return $usage if(($cmd eq "" || $cmd eq "?")); 
+    Log3 $name, 5, "VEDirect ($name) - Set command: $cmd Arguments $args[0]";
+    my ($reg,$scale,$unit,$setitm,$spezSetGet,$payload);
+    $cmd =~ s/_//g;
+    if($type eq "BMV" && defined($bmv_reg{$cmd}))
     {
-     InternalTimer(gettimeofday() + ($logtime - $secofday), "VEDirect_LogHistory", $hash, 0); 
+      $reg = $bmv_reg{$cmd}->{"Register"};
+      $scale = $bmv_reg{$cmd}->{"Scale"};
+      $unit = $bmv_reg{$cmd}->{"Unit"};
+      $setitm = $bmv_reg{$cmd}->{"SetItems"};
+      $spezSetGet = $bmv_reg{$cmd}->{"SpezialSetGet"};
+      $payload = $bmv_reg{$cmd}->{"Payloadnibbles"}; #$Register{ $type }->{ $reg }->{'min'}
+      Log3 $name, 5, "VEDirect ($name) - Set command: $cmd Arguments $args[0] ---> BMV-Register $reg identified";
     }
+    elsif($type eq "MPPT" && defined($mppt_reg{$cmd}))
+    {
+      $reg = $mppt_reg{$cmd}->{"Register"};
+      $scale = $mppt_reg{$cmd}->{"Scale"};
+      $unit = $mppt_reg{$cmd}->{"Unit"};
+      $setitm = $mppt_reg{$cmd}->{"SetItems"};
+      $spezSetGet = $mppt_reg{$cmd}->{"SpezialSetGet"};
+      $payload = $mppt_reg{$cmd}->{"Payloadnibbles"}; #$Register{ $type }->{ $reg }->{'min'}
+      Log3 $name, 5, "VEDirect ($name) - Set command: $cmd Arguments $args[0] ---> MPPT-Register $reg identified";
+    }
+    elsif($type eq "Inverter" && defined($inverter_reg{$cmd}))
+    {
+      $reg = $inverter_reg{$cmd}->{"Register"};
+      $scale = $inverter_reg{$cmd}->{"Scale"};
+      $unit = $inverter_reg{$cmd}->{"Unit"};
+      $setitm = $inverter_reg{$cmd}->{"SetItems"};
+      $spezSetGet = $inverter_reg{$cmd}->{"SpezialSetGet"};
+      $payload = $inverter_reg{$cmd}->{"Payloadnibbles"};
+      Log3 $name, 5, "VEDirect ($name) - Set command: $cmd Arguments $args[0] ---> Inverter-Register $reg identified"; 
+    }
+    else{return $usage;} 
+    $scale =~ s/,/./g;
+ ##------------------------------------------------------------------------
+ ## Informationen aus dem %Register zum Befehl holen und verarbeiten
+    if(defined($reg))
+      {
+        Log3 $name, 5, "VEDirect ($name) - Set command: $cmd Arguments $args[0] ---> Register $reg identified";
+        ##$reg = substr($reg, 2, 4);     # "0x" entfernen
+        ##Befehlsaufbau: ":8"(Set-Befehl) plus "00" Flags plus "Datavalue"
+        ##Command 8 ("Set") Returns a set response with the requested data or error is returned.
+        ##uint16 the id of the value to set
+        ##uint8 flags, should be set to zero
+        ##type depends on id value
+        my $command = ":8".substr($reg, 4, 2).substr($reg, 2, 2)."00";
+        ##wenn args[0] eine nummer ist
+        if ( $args[0] =~ /^[0-9,.]+.+/ ) 
+        {
+          $args[0] =~ /^[0-9,.]+$/;
+          $args[0] = $args[0] * ( 1 / $scale );    
+          Log3 $name, 5, "VEDirect ($name) - Set skalierter Setzwert: $args[0] ";
+          $args[0] = sprintf("%02X", $args[0]);
+          while(length($args[0]) < $payload)   
+            {
+              $args[0] = "0".$args[0];
+            }
+          $args[0] = substr($args[0],2,2).substr($args[0],0,2) if(length($args[0]) == 4); ##1234 --> 3412
+          $args[0] = substr($args[0],6,2).substr($args[0],4,2).substr($args[0],2,2).substr($args[0],0,2) if(length($args[0]) == 8); ##01234567 --> 67452301 
+        }
+        else 
+        {
+          ##wenn args[0] keine nummer enthält
+          my @tmtset = split(":",$setitm);
+          my @setItems = split(",",$tmtset[1]); 
+          #my @setItems = split(",",$setitm, index($setitm,":"));
+          #$setItems[0] = substr($setItems[0],1);
+          my @setValues = split(':',$spezSetGet);
+          for my $v (0 .. $#setItems)
+            {
+              Log3 $name, 5, "VEDirect ($name) - SET: setItems: $setItems[$v] --> InputValue: $args[0]";
+              if ($setItems[$v] eq $args[0])
+              {
+                Log3 $name, 5, "VEDirect ($name) - SET: setItems: $setItems[$v] --> SpezialSetGetValue: $setValues[$v]";
+                $args[0] = $setValues[$v];
+                $args[0] = "0".$args[0] if (length($args[0])==1 ||length($args[0])==3);
+                last;
+              }
+            } 
+        }
+        $command .= $args[0];
+        $command .= VEDirect_ChecksumHEX(0x55,$command);
+        Log3 $name, 5, "VEDirect ($name) - VEDirect_Set command $cmd - sending --> $command";
+        DevIo_SimpleWrite($hash, $command, 2, 1) ;
+    }    
+    elsif($reg eq "-" && $cmd eq "Restart")
+    {
+      DevIo_SimpleWrite($hash, ":64F", 2, 1) ;
+    }     
     else
     {
-      InternalTimer(gettimeofday() + (86400 -$secofday +  $logtime), "VEDirect_LogHistory", $hash, 0);
+        return $usage;
+    }  
+  
+  
+  }
+##################################################################################################################################################
+# Get functions - !!!!!!!!!!!!!!!TBD!!!!!!!!!!!!!!!!
+##################################################################################################################################################
+sub VEDirect_Get($$@)
+{
+    my ($hash, $name, $cmd, @args) = @_;
+    my $usage = "unknown argument $cmd, choose one of $hash->{helper}{getusage}";
+    my $ret = "";
+    my $type = $hash->{DeviceType} ; 
+#------------------------------------------------------------------------
+ # Register zum cmd suchen
+    my $key = ""; 
+    my $reg = "-"; 
+    my $debugarg = "-";
+    $debugarg = $args[0] if(defined($args[0])); 
+    
+ ##------------------------------------------------------------------------
+ ## Informationen aus dem %Register zum Befehl holen und verarbeiten
+    if ($cmd eq "History_all" && $type eq "MPPT")
+    { 
+       ## MPPT special Gets
+       Log3 $name, 5, "VEDirect ($name) - get History_all ++++++++++++++++++++++++++++++++++++";  
+       my @c;
+       for my $c (0 ..29)
+       {
+        $reg = ":7".sprintf("%02X", (0x50 + $c))."1000";
+        $reg .= VEDirect_ChecksumHEX(0x55,$reg);
+        Log3 $name, 5, "VEDirect ($name) - get command $cmd $debugarg - sending --> $reg";  
+        DevIo_SimpleWrite($hash, $reg, 2, 1) ; 
+        push @c,$reg;
+        Time::HiRes::sleep(0.2);
+        my $resp = DevIo_SimpleRead($hash) ;
+        
+        $hash->{helper}{BUFFER} .= $resp;
+        my $hexMsg ;
+        if($resp =~ /(\:[0-9A-F][0-9A-F]++)\n/)
+         {$hexMsg = $1;
+          my $parse = VEDirect_ParseHEX($hash, $hexMsg) if(defined($hexMsg));
+          push @c,$parse;
+          Log3 $name, 5, "VEDirect $name Get: received >$parse<"; 
+         }
+       }
+     return join("\n",@c)
     }
+    elsif ($cmd eq "ConfigAll")
+    {
+      Log3 $name, 5, "VEDirect ($name) - get ConfigAll ++++++++++++++++++++++++++++++++++++";
+      foreach my $key (keys %{ $Register{ $type } })
+        {
+          if ($Register{ $type }->{ $key }->{"getConfigAll"} == 1)
+          {
+            ##Befehlsaufbau: ":7"(Get-Befehl) plus "00" Flags plus checksum
+            ##Command 7 ("Get") Returns a get response with the requested data or error is returned.
+            ##uint16 the id of the value to set
+            ##uint8 flags, should be set to zero         0x1234
+            my $command = ":7".substr($key, -2, 2).substr($key, 2, 2)."00";
+            $command .= VEDirect_ChecksumHEX(0x55,$command);
+            DevIo_SimpleWrite($hash, $command, 2, 1) ; 
+            Log3 $name, 5, "VEDirect ($name) - get command $cmd $debugarg - sending --> $command";
+            Time::HiRes::sleep(0.1); 
+            my $resp = DevIo_SimpleRead($hash) ;
+            my $readAnswer = 0;
+            if ($readAnswer == 1)
+            {
+              $hash->{helper}{BUFFER} .= $resp;
+              my $hexMsg ;
+              if($resp =~ /(\:[0-9A-F][0-9A-F]++)\n/)
+               {$hexMsg = $1;
+                return VEDirect_ParseHEX($hash, $hexMsg) if(defined($hexMsg));
+               }
+            }
+          }
+          
+        }
+    }
+    else
+    { 
+      my @keylist = keys %{ $Register{ $type } };
+      Log3 $name, 5, "VEDirect ($name) - VEDirect_Get Keylist: @keylist";
+      for my $key (@keylist)
+      {
+        if (index($Register{ $type }->{ $key }->{"getValues"}, $cmd) != -1)
+        {
+            $reg = $key;
+            last;  
+        }
+      }
+      ##------------------------------------------------------------------------
+      if ($reg ne "-")
+      {
+        Log3 $name, 5, "VEDirect ($name) - Get command: $cmd  ---> Register $reg identified";    
+        ##Befehlsaufbau: ":7"(Get-Befehl) plus "00" Flags plus checksum
+        ##Command 7 ("Get") Returns a get response with the requested data or error is returned.
+        ##uint16 the id of the value to set
+        ##uint8 flags, should be set to zero
+        my $command = ":7".substr($reg, -2, 2).substr($reg, 2, 2)."00";
+        if ($Register{ $type }->{ $key }->{"getValues"} ne "-")
+        {
+          $command .= VEDirect_ChecksumHEX(0x55,$command); 
+          Log3 $name, 5, "VEDirect ($name) - get command $cmd - sending --> $command";
+          DevIo_SimpleWrite($hash, $command, 2, 1) ;
+        }  
+        Time::HiRes::sleep(0.1); 
+        my $resp = DevIo_SimpleRead($hash) ;
+        my $readAnswer = 0;
+        if ($readAnswer == 1)
+        {
+          $hash->{helper}{BUFFER} .= $resp;
+          my $hexMsg ;
+          if($resp =~ /(\:[0-9A-F][0-9A-F]++)\n/)
+           {$hexMsg = $1;
+            return VEDirect_ParseHEX($hash, $hexMsg) if(defined($hexMsg));
+           }
+        }
+      }
+      else
+      {
+        return $usage;
+      }
+    }  
 }
 ##################################################################################################################################################
-# 
+# Define
 ##################################################################################################################################################
+# will be executed upon successful connection establishment (see DevIo_OpenDev())
+sub VEDirect_Init($)
+{
+    my ($hash) = @_;
+
+    # send a Device-ID request to the device
+    DevIo_SimpleWrite($hash, ":451", 2, 1);
+    return undef; 
+}
 1;
-
-# Beginn der Commandref
-
-=pod
-=begin html       
-
-<a name="VEDirect"></a>
-<h3>VEDirect</h3>
-<ul>
-  <p>Verbindet FHEM mit einem Victron Ger?t (MPPT, BMV oder Inverter)<br>
-  mittels einer seriellen Verbindung. Set-Funktionen sind derzeit nicht implementiet</p><br><br>
-  <p><b>Define</b></p>
-  <ul>
-    <p><code>define &lt;name&gt; VEDirect &lt;serial device&gt; Devivetype[BMV|MPPT|Inverter]</code></p>
-    <p>Specifies the VE.Direct device.</p>
-  </ul>
-  <a name="VEDirectsets"></a>
-  <p><b>Set</b></p>
-  <ul>
-    <li>
-      <p>Set-Values tbd</p>
-    </li>
-  </ul>
-  <a name="VEDirectattr"></a>
-  <p><b>Attributes</b></p>
-  <ul> 
-    <li>
-      <p><code>att &lt;name&gt; Raw_Readings</code><br/>
-         "On": Es werden zus?tzliche Readings ausgegeben (Rohdaten vom Batteriemonitor)<br/>
-         "Off": (Standartwert) Es wird nur Klartext ausgegeben </p>    
-    </li> 
-        <li>
-      <p><code>att &lt;name&gt; berechneteWerte</code><br/>
-         "On": Es werden zus?tzliche Readings aus den Rohdaten berechnet: Leistung, Wh_geladen, Wh_entnommen<br/>
-         "Off":zus?tzliche Readings werden nicht berechnet (aber ggf. vom Device zur Verf?gung gestellt </p>    
-    </li>
-  </ul>
-</ul>
-=end html
-
-=cut
