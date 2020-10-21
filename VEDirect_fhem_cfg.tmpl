@@ -45,3 +45,19 @@ attr SmartShunt stateFormat <hr><div><table align=center>\
 <tr><td align=left>Geladen:</td><td align=left>Amount_of_charged_energy</td></tr>\
 <tr><td align=left>Entladen:</td><td align=left>Amount_of_discharged_energy</td></tr>\
 </table></div><hr>
+
+######################################################################################################
+##Phoenix_Inverter
+defmod Phoenix_Inverter_12_500 VEDirect /dev/ttyUSB9@19200,8,N,1 Inverter
+attr Phoenix_Inverter_12_500 room Solar
+attr Phoenix_Inverter_12_500 stateFormat <hr><div><table align=center>\
+<tr><td align=left>Batteriespannung:</td><td align=left>Main_or_channel_1_battery_voltage</td></tr>\
+<tr><td align=left>AC-Spannung:</td><td align=left>AC_Ausgangsspannung_V</td></tr>\
+<tr><td align=left>AC-Strom:</td><td align=left>AC_AusgangsStrom_A</td></tr>\
+<tr><td align=left>P_AC:</td><td align=left>B_AC_Ausgangsleistung</td></tr>\
+<tr><td align=left>Zustand:</td><td align=left>Betriebsart</td></tr>\
+<tr><td align=left>Alarme:</td><td align=left>Alarm_Reason</td></tr>\
+<tr><td align=left>Wanungen:</td><td align=left>Warnung</td></tr>\
+</table></div><hr>
+attr Phoenix_Inverter_12_500 verbose 0
+attr Phoenix_Inverter_12_500 webCmd Zustand:Betriebsart
