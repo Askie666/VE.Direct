@@ -1,7 +1,7 @@
 # fhem Modul fuer Victron VE.Direct Hex-Protokoll
 #     define SmartShunt VEDirect /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AL0404CO-if00-port0@19200 BMV
 #
-#Version 10 (16.10.2020)
+#Version 11 (21.10.2020)
 #Autor: Askie 
 #  
 package main;
@@ -502,7 +502,7 @@ my %BMV = (
 "0x1029"=>{"Bezeichnung"=>"set_Zero_Current", "ReadingName"=>"set_Zero_Current", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"-", "setValues"=>"set_Zero_Current:noArg", "spezialSetGet"=>"-"},
 "0x1034"=>{"Bezeichnung"=>"User_Current_Zero_(read_only)", "ReadingName"=>"User_Current_Zero_(read_only)", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"User_Current_Zero:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xED7D"=>{"Bezeichnung"=>"Aux_(starter)_Voltage", "ReadingName"=>"Aux_(starter)_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Aux_(starter)_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0xED8D"=>{"Bezeichnung"=>"Battery_Voltage", "ReadingName"=>"Battery_Voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Battery_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0xED8D"=>{"Bezeichnung"=>"Main_or_channel_1_battery_voltage", "ReadingName"=>"Main_or_channel_1_battery_voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Battery_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xED8E"=>{"Bezeichnung"=>"Power", "ReadingName"=>"Power", "Einheit"=>"W", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Power:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xED8F"=>{"Bezeichnung"=>"Current", "ReadingName"=>"Current", "Einheit"=>"A", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Current:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xEDDD"=>{"Bezeichnung"=>"System_yield", "ReadingName"=>"System_yield", "Einheit"=>"kWh", "Skalierung"=>"0.01", "Payloadnibbles"=>"8", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"System_yield:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
@@ -636,7 +636,7 @@ my %MPPT = (
 "0xEDD2"=>{"Bezeichnung"=>"Maximum_power_today", "ReadingName"=>"Maximum_power_today", "Einheit"=>"W", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Maximum_power_today:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xEDD3"=>{"Bezeichnung"=>"Yield_today", "ReadingName"=>"Yield_today", "Einheit"=>"kWh", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Yield_today:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xEDD4"=>{"Bezeichnung"=>"Additional_charger_state_info", "ReadingName"=>"Additional_charger_state_info", "Einheit"=>"-", "Skalierung"=>"-", "Payloadnibbles"=>"2", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Additional_charger_state_info:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0xEDD5"=>{"Bezeichnung"=>"Battery_voltage", "ReadingName"=>"Battery_voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Charger_voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
+"0xEDD5"=>{"Bezeichnung"=>"Main_or_channel_1_battery_voltage", "ReadingName"=>"Main_or_channel_1_battery_voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Charger_voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xEDD7"=>{"Bezeichnung"=>"Charger_current", "ReadingName"=>"Charger_current", "Einheit"=>"A", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Charger_current:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
 "0xEDD9"=>{"Bezeichnung"=>"Relay_operation_mode", "ReadingName"=>"Relay_operation_mode", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Relay_operation_mode:noArg", "setValues"=>"Relay_operation_mode:off,PV_V_high,int_temp_high,Batt_Voltage_low,equalization_active,Error_cond_present,int_temp_low,Batt_Voltage_too_high,Charger_in_float_or_storage,day_detection,load_control", "spezialSetGet"=>"0:1:2:3:4:5:6:7:8:9:10"},
 "0xEDDA"=>{"Bezeichnung"=>"Charger_error_code", "ReadingName"=>"Charger_error_code", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"2", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Charger_error_code:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
@@ -649,7 +649,7 @@ my %MPPT = (
 "0xEDE8"=>{"Bezeichnung"=>"BMS_present", "ReadingName"=>"BMS_present", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"2", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"BMS_present:noArg", "setValues"=>"BMS_present", "spezialSetGet"=>"-"},
 "0xEDEA"=>{"Bezeichnung"=>"Battery_voltage_setting", "ReadingName"=>"Battery_voltage_setting", "Einheit"=>"V", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_voltage_setting:noArg", "setValues"=>"Battery_voltage_setting", "spezialSetGet"=>"-"},
 "0xEDEC"=>{"Bezeichnung"=>"Battery_temperature", "ReadingName"=>"Battery_temperature", "Einheit"=>"K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"0", "getValues"=>"Battery_temperature:noArg", "setValues"=>"-", "spezialSetGet"=>"-"},
-"0xEDEF"=>{"Bezeichnung"=>"Battery_voltage_nominal", "ReadingName"=>"Battery_voltage_nominal", "Einheit"=>"V", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_voltage:noArg", "setValues"=>"Battery_voltage", "spezialSetGet"=>"-"},
+"0xEDEF"=>{"Bezeichnung"=>"Battery_voltage_nominal", "ReadingName"=>"Battery_voltage_nominal", "Einheit"=>"V", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_voltage_nominal:noArg", "setValues"=>"Battery_voltage_nominal", "spezialSetGet"=>"-"},
 "0xEDF0"=>{"Bezeichnung"=>"Battery_maximum_current", "ReadingName"=>"Battery_maximum_current", "Einheit"=>"A", "Skalierung"=>"0.1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_maximum_current:noArg", "setValues"=>"Battery_maximum_current", "spezialSetGet"=>"-"},
 "0xEDF1"=>{"Bezeichnung"=>"Battery_type", "ReadingName"=>"Battery_type", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"2", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_type:noArg", "setValues"=>"Battery_type:TYPE_1_GEL_Victron_Long_Life_14_1V,TYPE_2_GEL_Victron_Deep_discharge_14_3V,TYPE_3_GEL_Victron_Deep_discharge_14_4V,TYPE_4_AGM_Victron_Deep_discharge_14_7V,TYPE_5_Tubular_plate_cyclic_mode_1_14_9V,TYPE_6_Tubular_plate_cyclic_mode_2_15_1V,TYPE_7_Tubular_plate_cyclic_mode_3_15_3V,TYPE_8_LiFEPO4_14_2V,User_defined", "spezialSetGet"=>"1:2:3:4:5:6:7:8:255"},
 "0xEDF2"=>{"Bezeichnung"=>"Battery_temp_compensation", "ReadingName"=>"Battery_temp_compensation", "Einheit"=>"mV_K", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"Battery_temp_compensation:noArg", "setValues"=>"Battery_temp_compensation", "spezialSetGet"=>"-"},
@@ -690,7 +690,7 @@ my %Inverter = (
 "0xEBB5"=>{"Bezeichnung"=>"INV_PROT_UBAT_DYN_CUTOFF_FACTOR2000", "ReadingName"=>"INV_PROT_UBAT_DYN_CUTOFF_FACTOR2000", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"INV_PROT_UBAT_DYN_CUTOFF_FACTOR2000:noArg", "setValues"=>"INV_PROT_UBAT_DYN_CUTOFF_FACTOR2000", "spezialSetGet"=>"-"},
 "0xEBB7"=>{"Bezeichnung"=>"INV_PROT_UBAT_DYN_CUTOFF_FACTOR", "ReadingName"=>"INV_PROT_UBAT_DYN_CUTOFF_FACTOR", "Einheit"=>"", "Skalierung"=>"", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"INV_PROT_UBAT_DYN_CUTOFF_FACTOR:noArg", "setValues"=>"INV_PROT_UBAT_DYN_CUTOFF_FACTOR", "spezialSetGet"=>"-"},
 "0xEBBA"=>{"Bezeichnung"=>"INV_PROT_UBAT_DYN_CUTOFF_ENABLE", "ReadingName"=>"INV_PROT_UBAT_DYN_CUTOFF_ENABLE", "Einheit"=>"", "Skalierung"=>"1", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"0", "getConfigAll"=>"1", "getValues"=>"INV_PROT_UBAT_DYN_CUTOFF_ENABLE:noArg", "setValues"=>"INV_PROT_UBAT_DYN_CUTOFF_ENABLE:disabled,enabled", "spezialSetGet"=>"0:1"},
-"0xED8D"=>{"Bezeichnung"=>"Battery_voltage", "ReadingName"=>"Battery_voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Battery_Voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"});
+"0xED8D"=>{"Bezeichnung"=>"Main_or_channel_1_battery_voltage", "ReadingName"=>"Main_or_channel_1_battery_voltage", "Einheit"=>"V", "Skalierung"=>"0.01", "Payloadnibbles"=>"4", "min"=>"", "max"=>"", "Zyklisch"=>"1", "getConfigAll"=>"0", "getValues"=>"Main_or_channel_1_battery_voltage:noArg", "setValues"=>"-", "spezialSetGet"=>"-"});
 
 
 
@@ -804,7 +804,8 @@ sub VEDirect_Initialize($)
   $hash->{ReadFn}   = "VEDirect_Read";
   $hash->{ReadyFn}  = "VEDirect_Ready"; 
   $hash->{AttrList} = "disable LogHistoryToFile ". $readingFnAttributes;
-  $hash->{helper}{BUFFER} = "";  
+  $hash->{helper}{BUFFER} = "";
+  $hash->{helper}{lastHex} = "";  
   $hash->{helper}{tmpData} = {};
 }
 ##################################################################################################################################################
@@ -1031,20 +1032,16 @@ sub VEDirect_Read($$$)
    }
    
     $hash->{helper}{BUFFER} = "" if (length($hash->{helper}{BUFFER}) > 800); 
+    my $lastMin = $hash->{helper}{lastHex};
+     
     #$teil=substr($original,startpos,anzahlzeichen,ersetzungszeichen);
-    #my $minu = substr(ReadingsTimestamp($name,"Product_ID",""),length(ReadingsTimestamp($name,"Product_ID",""))-4,1); #2020-10-20 23:06:17
-    #if(ReadingsVal($name,"lastHexCmd",0) != $minu)
-    #{
-    #  my $command = ":154";
-    #  DevIo_SimpleWrite($hash, $command, 2, 1) ;
-    #  readingsSingleUpdate($hash, "lastHexCmd", $minu, 1);
-    #}
-    #else
-    #{
-    #  my $HexCnt = $minu + 1;
-    #  readingsSingleUpdate($hash, "lastHexCmd", $HexCnt, 1);
-    #}
-    
+    my $minu = POSIX::strftime("%M",localtime(time));
+    if($lastMin != $minu)
+    {
+      my $command = ":154";
+      DevIo_SimpleWrite($hash, $command, 2, 1) ;
+      $hash->{helper}{lastHex} = $minu;
+    }
 }
 ##################################################################################################################################################
 # ParseTXT
