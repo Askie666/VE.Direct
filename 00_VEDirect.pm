@@ -1,7 +1,7 @@
 # fhem Modul fuer Victron VE.Direct Hex-Protokoll
 #     define SmartShunt VEDirect /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AL0404CO-if00-port0@19200 BMV
 #
-#Version 11 (21.10.2020)
+#Version 12 (22.10.2020)
 #Autor: Askie 
 #  
 package main;
@@ -805,7 +805,7 @@ sub VEDirect_Initialize($)
   $hash->{ReadyFn}  = "VEDirect_Ready"; 
   $hash->{AttrList} = "disable LogHistoryToFile ". $readingFnAttributes;
   $hash->{helper}{BUFFER} = "";
-  $hash->{helper}{lastHex} = "";  
+  $hash->{helper}{lastHex} = "1";  
   $hash->{helper}{tmpData} = {};
 }
 ##################################################################################################################################################
@@ -966,7 +966,7 @@ sub VEDirect_Read($$$)
       {
        $hexMsg = $1;
        $buf =~ s/$hexMsg//;  #hex-Nachricht entfernen
-       Log3 $name, 3, "VEDirect ($name) - Read: cutting Hex-MSG: >$hexMsg<";
+       Log3 $name, 4, "VEDirect ($name) - Read: cutting Hex-MSG: >$hexMsg<";
        VEDirect_ParseHEX($hash, $hexMsg);  #ParseHex-funktion aufrufen (direkte Auswerung der Daten)
       } 
     }  
@@ -1179,7 +1179,7 @@ sub VEDirect_ParseHEX($$)
  else
   {return undef if(VEDirect_ChecksumHEX(0x55,$msg) eq 0);} 
   
- Log3 $name, 3, "VEDirect ($name) - ParseHex Checksum ok in $msg";   
+ Log3 $name, 4, "VEDirect ($name) - ParseHex Checksum ok in $msg";   
  
  ##-----------------------------------------------------------------
  ##gültige Checksumm empfangen - Auswerten
@@ -1191,7 +1191,7 @@ sub VEDirect_ParseHEX($$)
   {
    #Async message
    $id = "0x".substr($msg,4,2).substr($msg,2,2);   #:A D7ED 00 0E00 79     --> Reg:EDD7 Flag:00, Value 000E  (Scalierung 0,1A , 4 Paylodnibbles)
-   Log3 $name, 3, "VEDirect ($name) - ParseHex: Receives Async Msg: $msg for RegisterID $id";
+   Log3 $name, 4, "VEDirect ($name) - ParseHex: Receives Async Msg: $msg for RegisterID $id";
     if ( defined ($Register{ $type }->{ $id }))
     { 
       
@@ -1200,10 +1200,43 @@ sub VEDirect_ParseHEX($$)
          my $Payloadnibbles = $Register{ $type }->{ $id }->{'Payloadnibbles'};
          if($Payloadnibbles >=30)
          {
-            Log3 $name, 5, "VEDirect ($name) - ParseHex: ReceiveHistory MSG";
+            Log3 $name, 3, "VEDirect ($name) - ParseHex: Received Async History MSG";
             $payload = substr($msg,8,length($msg)-10);
             $payload =  VEDirect_ParseHistory($hash, $id, $payload);
             my $Hdate = POSIX::strftime("%Y%m%d",localtime(time+86400*$Register{ $type }->{ $id }->{'Skalierung'}));
+            my $HdateOld = POSIX::strftime("%Y%m%d",localtime(time-86400*$Register{ $type }->{ $id }->{'Skalierung'}));
+            Log3 $name, 3, "VEDirect ($name) - ParseHex: $Hdate | $HdateOld | $payload ";
+            if (defined(AttrVal($name, "LogHistoryToFile", undef)))
+            {
+              my $logFile = AttrVal($name, "LogHistoryToFile", undef);
+              my $found = 0;
+              #-----------------------------------------------------------------
+              open(my $fh, '<', $logFile) or die $!;
+                while(<$fh>){
+                   if(index($_, $Hdate." Y") != -1)
+                    {
+                      $found = 1;  #Wert ist schon vorhanden  
+                      Log3 $name, 3, "VEDirect ($name) - ParseHex: $Hdate $payload NICHT in Logdatei $logFile geschrieben - schon vorhanden";
+                      if($_ ne $Hdate." ".$payload."\n")
+                      {
+                        print $fh $Hdate." ".$payload."\n";
+                        Log3 $name, 3, "VEDirect ($name) - ParseHex: $Hdate in Logdatei $logFile AKTUALISIERT";
+                      };
+                    }
+                }
+              close $fh;
+              #-----------------------------------------------------------------
+              if($found == 0)
+              {
+               open(my $fh, '>>', "$logFile") or die "Could not open file '$logFile' $!";
+               print $fh $Hdate." ".$payload."\n";
+               close $fh;
+               Log3 $name, 3, "VEDirect ($name) - ParseHex: Async Msg $Hdate $payload in Logdatei $logFile geschrieben";
+              }
+              
+            }
+            
+            
             readingsSingleUpdate($hash, "History_".$Hdate, $payload, 1);
             #readingsSingleUpdate($hash, "H_".$Register{ $type }->{ $id }->{'ReadingName'}, $payload." ".$Einheit, 1);
          }
@@ -1251,19 +1284,19 @@ sub VEDirect_ParseHEX($$)
  elsif($response == "1")
   {
    #Done
-   Log3 $name, 3, "VEDirect ($name) - VEDirect_ParseHex received response Type 1";
+   Log3 $name, 4, "VEDirect ($name) - VEDirect_ParseHex received response Type 1";
   }
  elsif($response == "3")
   {
    #Unknown
-   Log3 $name, 2, "VEDirect ($name) - Hex_Message_Error -Unknown command";   
+   Log3 $name, 4, "VEDirect ($name) - Hex_Message_Error -Unknown command";   
    return "Hex_Message_Error -Unknown command";
    
   }
  elsif($response == "4")
   {
    #Error
-   Log3 $name, 2, "VEDirect ($name) - Hex_Message_Error -Frame error";
+   Log3 $name, 4, "VEDirect ($name) - Hex_Message_Error -Frame error";
    return "Hex_Message_Error -Frame error"; 
    
   }
@@ -1284,7 +1317,7 @@ sub VEDirect_ParseHEX($$)
    #Nibble 6,7:Flag
    #Nibble 8 bis 8+laengePayload;Payload
     $id = "0x".substr($msg,4,2).substr($msg,2,2);
-     Log3 $name, 3, "VEDirect ($name) - ParseHex: Received set / get-answer for ID: $id";
+     Log3 $name, 4, "VEDirect ($name) - ParseHex: Received set / get-answer for ID: $id";
     if (defined $Register{ $type }->{ $id })
      { 
         if(defined($Register{ $type }->{ $id }->{'Payloadnibbles'}))
@@ -1299,9 +1332,31 @@ sub VEDirect_ParseHEX($$)
             if (defined(AttrVal($name, "LogHistoryToFile", undef)))
             {
               my $logFile = AttrVal($name, "LogHistoryToFile", undef);
-              open(my $fh, '>>', "$logFile") or die "Could not open file '$logFile' $!";
-              print $fh $Hdate." ".$payload."\n";
+              my $found = 0;
+              #-----------------------------------------------------------------
+              open(my $fh, '<', $logFile) or die $!;
+                while(<$fh>){
+                   if(index($_, $Hdate." Y") != -1)
+                    {
+                      $found = 1;  #Wert ist schon vorhanden  
+                      Log3 $name, 3, "VEDirect ($name) - ParseHex: Get-Response $Hdate $payload NICHT in Logdatei $logFile geschrieben - schon vorhanden";
+                      if($_ ne $Hdate." ".$payload."\n")
+                      {
+                        print $fh $Hdate." ".$payload."\n";
+                        Log3 $name, 3, "VEDirect ($name) - ParseHex: Get-Response $Hdate in Logdatei $logFile AKTUALISIERT";
+                      };
+                    }
+                }
               close $fh;
+              #-----------------------------------------------------------------
+              if($found == 0)
+              {
+               open(my $fh, '>>', "$logFile") or die "Could not open file '$logFile' $!";
+               print $fh $Hdate." ".$payload."\n";
+               close $fh;
+               Log3 $name, 3, "VEDirect ($name) - ParseHex: Get-Response Msg $Hdate $payload in Logdatei $logFile geschrieben";
+              }
+              
             }
             readingsSingleUpdate($hash, "History_".$Hdate, $payload, 1);
             ##readingsSingleUpdate($hash, "H_".$Bezeichnung, $payload." ".$Einheit, 1);
