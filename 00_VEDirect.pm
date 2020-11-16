@@ -1,7 +1,7 @@
 # fhem Modul fuer Victron VE.Direct Hex-Protokoll
 #     define SmartShunt VEDirect /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AL0404CO-if00-port0@19200 BMV
 #
-#Version 12.1 (16.11.2020)
+#Version 12.2 (16.11.2020)
 #Autor: Askie 
 #  
 package main;
@@ -412,7 +412,7 @@ my $MPPTGets = "ConfigAll:noArg History_all:noArg Charger_mode:off,on,off Relay_
                "History-14:noArg History-15:noArg History-16:noArg History-17:noArg History-18:noArg History-19:noArg History-20:noArg History-21:noArg History-22:noArg History-23:noArg ".
                "History-24:noArg History-25:noArg History-26:noArg History-27:noArg History-28:noArg History-29:noArg History-30:noArg Charge_voltage_set-point:noArg Battery_voltage_sense:noArg ".
                "Network_mode:noArg Network_status:noArg Solar_activity:noArg RX_Port_operation_mode:noArg Load_switch_low_level:noArg Load_switch_high_level:noArg TX_Port_operation_mode:noArg ".
-               "oad_output_control:noArg Relay_operation_mode:noArg Charger_maximum_current:noArg Battery_low_temperature_level:noArg Low_temperature_charge_current:noArg ".
+               "Load_output_control:noArg Relay_operation_mode:noArg Charger_maximum_current:noArg Battery_low_temperature_level:noArg Low_temperature_charge_current:noArg ".
                "Battery_temperature:noArg Battery_maximum_current:noArg Battery_type:noArg Battery_temp_compensation:noArg Battery_equalization_voltage:noArg ".
                "Battery_float_voltage:noArg Battery_absorption_voltage:noArg Automatic_equalization_mode:noArg";
 
