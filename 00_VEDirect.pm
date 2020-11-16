@@ -1,7 +1,7 @@
 # fhem Modul fuer Victron VE.Direct Hex-Protokoll
 #     define SmartShunt VEDirect /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AL0404CO-if00-port0@19200 BMV
 #
-#Version 12 (22.10.2020)
+#Version 12.1 (16.11.2020)
 #Autor: Askie 
 #  
 package main;
