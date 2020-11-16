@@ -1594,7 +1594,7 @@ sub VEDirect_Set($$@)
     return $usage if(($cmd eq "" || $cmd eq "?")); 
     Log3 $name, 5, "VEDirect ($name) - Set command: $cmd Arguments $args[0]";
     my ($reg,$scale,$unit,$setitm,$spezSetGet,$payload);
-    $cmd =~ s/_//g;
+    ## $cmd =~ s/_//g;
     if($type eq "BMV" && defined($bmv_reg{$cmd}))
     {
       $reg = $bmv_reg{$cmd}->{"Register"};
